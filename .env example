@@ -1,0 +1,8 @@
+# Discord Bot Credentials
+DISCORD_TOKEN=""
+CLIENT_ID=""
+GUILD_ID="" # Your private test server ID for instant command deployment
+
+# Firebase Service Account Key (Base64 Encoded)
+# See instructions to generate this key. DO NOT PASTE THE RAW JSON HERE.
+FIREBASE_PRIVATE_KEY_BASE64=""
