@@ -1,22 +1,52 @@
 // commands/economy/balance.js
-// ... (require statements)
+const { SlashCommandBuilder } = require('discord.js');
+const { createGheeEmbed, createErrorEmbed } = require('../../utils/embeds');
+const { getXpForNextLevel } = require('../../utils/leveling');
 
 module.exports = {
-    // ... (data property)
+    category: 'economy',
+    data: new SlashCommandBuilder()
+        .setName('balance')
+        .setDescription("Check your or another user's core stats.")
+        .addUserOption(option =>
+            option.setName('user')
+                .setDescription('The user to check the balance of.')
+                .setRequired(false)),
+
     async execute(interaction, db) {
-        console.log('[DEBUG] /balance: Step A - Entered execute function.');
         await interaction.deferReply();
-        console.log('[DEBUG] /balance: Step B - Reply deferred successfully.');
 
         try {
-            console.log('[DEBUG] /balance: Step C - About to fetch user document from Firestore...');
-            const userDoc = await db.collection('users').doc(`${interaction.guild.id}-${interaction.user.id}`).get();
-            console.log('[DEBUG] /balance: Step D - User document fetched from Firestore.');
-            // ... (rest of the command logic)
-            console.log('[DEBUG] /balance: Step G - Final reply sent.');
+            const targetUser = interaction.options.getUser('user') || interaction.user;
+            if (targetUser.bot) {
+                return interaction.editReply({ embeds: [createErrorEmbed("Bots are beyond the concept of money and levels.")]});
+            }
+
+            const userDocRef = db.collection('users').doc(`${interaction.guild.id}-${targetUser.id}`);
+            const userDoc = await userDocRef.get();
+
+            const data = userDoc.data() || {};
+            const spotCoins = data.spotCoins || 0;
+            const level = data.level || 1;
+            const chatXp = data.chatXp || 0;
+            const voiceXp = data.voiceXp || 0;
+            const totalXp = chatXp + voiceXp;
+            
+            const xpForNext = getXpForNextLevel(level);
+
+            const embed = createGheeEmbed(`📊 Stats for ${targetUser.username}`)
+                .setThumbnail(targetUser.displayAvatarURL())
+                .addFields(
+                    { name: 'Spot Coins', value: `🪙 ${spotCoins.toLocaleString()}`, inline: true },
+                    { name: 'Level', value: `📈 ${level}`, inline: true },
+                    { name: 'XP Progress', value: `⚡ ${totalXp.toLocaleString()} / ${xpForNext.toLocaleString()}`, inline: false }
+                );
+
+            await interaction.editReply({ embeds: [embed] });
+
         } catch (error) {
-            console.error(`[DEBUG] Error inside /balance command:`, error);
-            // ... (error handling)
+            console.error(`Error fetching balance for user ${interaction.user.id}:`, error);
+            await interaction.editReply({ embeds: [createErrorEmbed('Could not fetch the balance due to a database error.')] });
         }
     },
 };
