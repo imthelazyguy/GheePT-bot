@@ -1,33 +1,47 @@
 // commands/vc_moderation/move.js
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, ActionRowBuilder, ChannelSelectMenuBuilder } = require('discord.js');
 const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('move')
-        .setDescription('Moves a member to another voice channel.')
+        .setDescription('Moves a member to another voice channel via a dropdown menu.')
         .setDefaultMemberPermissions(PermissionFlagsBits.MoveMembers)
-        .addUserOption(option => option.setName('target').setDescription('The member to move.').setRequired(true))
-        .addChannelOption(option => 
-            option.setName('destination')
-                .setDescription('The voice channel to move them to.')
-                .addChannelTypes(ChannelType.GuildVoice)
-                .setRequired(true)),
+        .addUserOption(option => option.setName('target').setDescription('The member to move.').setRequired(true)),
 
     async execute(interaction) {
         const target = interaction.options.getMember('target');
-        const destination = interaction.options.getChannel('destination');
-        
         if (!target.voice.channel) {
             return interaction.reply({ embeds: [createErrorEmbed("That user is not in a voice channel.")], ephemeral: true });
         }
-
-        try {
-            await target.voice.setChannel(destination);
-            await interaction.reply({ embeds: [createSuccessEmbed(`${target.user.tag} has been moved to ${destination.name}.`)] });
-        } catch (error) {
-            console.error(`Failed to move ${target.user.tag}:`, error);
-            await interaction.reply({ embeds: [createErrorEmbed("An error occurred.")] });
+        
+        const voiceChannels = interaction.guild.channels.cache.filter(c => c.type === ChannelType.GuildVoice && c.id !== target.voice.channelId);
+        if (voiceChannels.size === 0) {
+            return interaction.reply({ embeds: [createErrorEmbed("There are no other voice channels to move this user to.")]});
         }
+
+        const selectMenu = new ChannelSelectMenuBuilder()
+            .setCustomId(`move_user_${target.id}`)
+            .setPlaceholder('Select a destination channel...')
+            .addChannelTypes(ChannelType.GuildVoice);
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const message = await interaction.reply({
+            content: `Please select a channel to move ${target.user.username} to.`,
+            components: [row],
+            ephemeral: true
+        });
+        
+        const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id, time: 60000 });
+        collector.on('collect', async i => {
+            const destination = i.channels.first();
+            try {
+                await target.voice.setChannel(destination);
+                await i.update({ content: `Successfully moved ${target.user.tag} to ${destination.name}.`, components: [] });
+            } catch (error) {
+                await i.update({ content: `Failed to move user.`, components: [] });
+            }
+        });
     },
 };
