@@ -1,6 +1,6 @@
 // events/interactionCreate.js
 const { Events, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
-const { createErrorEmbed, createSuccessEmbed, createGheeEmbed } = require('../../utils/embeds');
+const { createErrorEmbed, createSuccessEmbed, createGheeEmbed } = require('../utils/embeds');
 const { FieldValue } = require('firebase-admin/firestore');
 const Blackjack = require('../utils/blackjack');
 const Roulette = require('../utils/roulette');
