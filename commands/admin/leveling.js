@@ -1,26 +1,27 @@
-// commands/admin/leveling.js
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+// commands/admin/level-roles.js
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { createGheeEmbed, createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 
 module.exports = {
+    category: 'admin',
     data: new SlashCommandBuilder()
-        .setName('leveling')
+        .setName('level-roles') // Renamed the command for clarity
         .setDescription('Configure roles granted at specific level milestones. (Admin Only)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addSubcommand(subcommand =>
             subcommand
-                .setName('set_role')
+                .setName('set')
                 .setDescription('Set a role to be granted at a specific level.')
                 .addIntegerOption(option => option.setName('level').setDescription('The level to grant the role at.').setRequired(true).setMinValue(1))
                 .addRoleOption(option => option.setName('role').setDescription('The role to grant.').setRequired(true)))
         .addSubcommand(subcommand =>
             subcommand
-                .setName('remove_role')
+                .setName('remove')
                 .setDescription('Remove a role reward for a specific level.')
                 .addIntegerOption(option => option.setName('level').setDescription('The level to remove the role reward from.').setRequired(true).setMinValue(1)))
         .addSubcommand(subcommand =>
             subcommand
-                .setName('list_roles')
+                .setName('list')
                 .setDescription('Lists all configured level role rewards.')),
 
     async execute(interaction, db) {
@@ -29,7 +30,7 @@ module.exports = {
         const guildId = interaction.guild.id;
         const levelRolesRef = db.collection('guilds').doc(guildId).collection('level_roles');
 
-        if (subcommand === 'set_role') {
+        if (subcommand === 'set') {
             const level = interaction.options.getInteger('level');
             const role = interaction.options.getRole('role');
 
@@ -47,7 +48,7 @@ module.exports = {
                 console.error('Failed to set level role:', error);
                 await interaction.editReply({ embeds: [createErrorEmbed('A database error occurred.')] });
             }
-        } else if (subcommand === 'remove_role') {
+        } else if (subcommand === 'remove') {
             const level = interaction.options.getInteger('level');
             try {
                 await levelRolesRef.doc(level.toString()).delete();
@@ -56,14 +57,13 @@ module.exports = {
                 console.error('Failed to remove level role:', error);
                 await interaction.editReply({ embeds: [createErrorEmbed('A database error occurred.')] });
             }
-        } else if (subcommand === 'list_roles') {
+        } else if (subcommand === 'list') {
             try {
                 const snapshot = await levelRolesRef.get();
                 if (snapshot.empty) {
                     return interaction.editReply({ embeds: [createErrorEmbed('No level role rewards have been configured yet.')] });
                 }
                 
-                // Firestore returns docs by ID string, so we need to sort numerically
                 const roles = snapshot.docs
                     .map(doc => ({ level: parseInt(doc.id, 10), data: doc.data() }))
                     .sort((a, b) => a.level - b.level);
