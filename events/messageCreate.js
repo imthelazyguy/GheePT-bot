@@ -1,7 +1,7 @@
 // events/messageCreate.js
 const { Events } = require('discord.js');
 const { FieldValue } = require('firebase-admin/firestore');
-const { createGheeEmbed } = require('../../utils/embeds');
+const { createGheeEmbed } = require('../utils/embeds'); // FIX: Corrected the path from ../../ to ../
 const { getXpForNextLevel } = require('../utils/leveling');
 const config = require('../config');
 
@@ -15,7 +15,7 @@ async function handleCasualResponse(message, db) {
     const GREETING_COOLDOWN_SECONDS = 300; // 5 minutes
 
     if (lastResponse && (now - lastResponse) < GREETING_COOLDOWN_SECONDS * 1000) {
-        return; // Channel is on cooldown for casual responses.
+        return;
     }
 
     if (!client.greetingKeywords.has(guildId)) {
@@ -29,18 +29,15 @@ async function handleCasualResponse(message, db) {
     const keywordsMap = client.greetingKeywords.get(guildId);
     if (!keywordsMap || keywordsMap.size === 0) return;
     
-    // FIX: The logic below is updated to be case-insensitive and match whole words.
     for (const [keyword, replies] of keywordsMap.entries()) {
-        // Create a case-insensitive regular expression with word boundaries.
-        // This ensures "ghee" matches "Ghee!" or "where is ghee", but not "gheezer".
         const regex = new RegExp(`\\b${keyword}\\b`, 'i');
 
         if (regex.test(message.content)) {
             if (replies && replies.length > 0) {
                 const reply = replies[Math.floor(Math.random() * replies.length)];
                 await message.channel.send(reply);
-                cooldowns.set(message.channel.id, now); // Set new cooldown
-                return; // Respond to the first keyword found and stop.
+                cooldowns.set(message.channel.id, now);
+                return;
             }
         }
     }
