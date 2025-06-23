@@ -5,94 +5,75 @@ const { createGheeEmbed } = require('../utils/embeds');
 const { getXpForNextLevel } = require('../utils/leveling');
 const config = require('../config');
 
-// This function can remain the same
-async function handleCasualResponse(message, db) {
-    // ... your existing code for casual responses ...
-}
+// These functions remain the same for now.
+async function handleCasualResponse(message, db) { /* ... existing code ... */ }
 
 async function handleXp(message, db) {
     const guildId = message.guild.id;
     const userId = message.author.id;
     const userDocRef = db.collection('users').doc(`${guildId}-${userId}`);
     try {
+        console.log(`[XP-DEBUG] Step 1: Starting XP transaction for user ${userId}.`);
         await db.runTransaction(async (transaction) => {
+            console.log(`[XP-DEBUG] Step 2: Fetching user document.`);
             const userDoc = await transaction.get(userDocRef);
             const now = new Date();
             const lastMessageTime = userDoc.exists ? userDoc.data().lastMessageTimestamp?.toDate() : null;
+
             if (lastMessageTime && (now.getTime() - lastMessageTime.getTime()) < config.XP_COOLDOWN_SECONDS * 1000) {
+                console.log(`[XP-DEBUG] User ${userId} is on XP cooldown. Aborting.`);
                 return;
             }
+
+            console.log(`[XP-DEBUG] Step 3: User is not on cooldown. Calculating XP gain.`);
             const xpGained = Math.floor(Math.random() * (config.XP_PER_MESSAGE_MAX - config.XP_PER_MESSAGE_MIN + 1)) + config.XP_PER_MESSAGE_MIN;
 
-            const currentData = userDoc.data() || { level: 1, chatXp: 0, voiceXp: 0, spotCoins: 0 };
+            const currentData = userDoc.data() || { level: 1, chatXp: 0, voiceXp: 0 };
             let { level, chatXp, voiceXp } = currentData;
             const initialLevel = level;
             
             const currentTotalXp = chatXp + voiceXp;
             const newTotalXp = currentTotalXp + xpGained;
             let xpForNext = getXpForNextLevel(level);
+            console.log(`[XP-DEBUG] Step 4: User Lvl ${level} has ${currentTotalXp} XP. Needs ${xpForNext}. Gained ${xpGained}. New total: ${newTotalXp}.`);
 
             let leveledUp = false;
             let totalReward = 0;
             let finalRoleToGrant = null;
             
-            // =================================================================
-            // --- THE DEFINITIVE LEVEL-UP FIX ---
-            // We use a 'while' loop instead of an 'if' statement. This ensures
-            // that if a user gains enough XP to level up multiple times at once,
-            // the bot will process every single level-up in one go.
-            // =================================================================
             while (newTotalXp >= xpForNext) {
-                level++; // Increment the level
-                leveledUp = true; // Mark that at least one level-up happened
-                totalReward += config.LEVEL_UP_REWARD_BASE * level; // Add this level's reward to a running total
+                level++;
+                console.log(`[XP-DEBUG] Step 5a: User leveled up to ${level}.`);
+                leveledUp = true;
+                totalReward += config.LEVEL_UP_REWARD_BASE * level;
                 
-                // Check if this new level has a role reward. We'll only store the latest one.
-                const roleConfigDoc = await db.collection('guilds').doc(guildId).collection('level_roles').doc(level.toString()).get();
+                const roleConfigRef = db.collection('guilds').doc(guildId).collection('level_roles').doc(level.toString());
+                console.log(`[XP-DEBUG] Step 5b: Checking for role at level ${level}.`);
+                const roleConfigDoc = await roleConfigRef.get();
                 if (roleConfigDoc.exists) {
-                    finalRoleToGrant = roleConfigDoc.data(); // Store { roleId, roleName }
+                    finalRoleToGrant = roleConfigDoc.data();
+                    console.log(`[XP-DEBUG] Step 5c: Found role ${finalRoleToGrant.roleName} for level ${level}.`);
                 }
-
-                // CRITICAL: Recalculate the XP needed for the *next* level for the loop's next check.
+                
                 xpForNext = getXpForNextLevel(level);
+                console.log(`[XP-DEBUG] Step 5d: New XP threshold for next level (${level+1}) is ${xpForNext}.`);
             }
 
-            let updateData = {
-                chatXp: FieldValue.increment(xpGained),
-                lastMessageTimestamp: now,
-                username: message.author.username
-            };
+            let updateData = { chatXp: FieldValue.increment(xpGained), lastMessageTimestamp: now, username: message.author.username };
 
             if (leveledUp) {
-                updateData.level = level; // Update to the new, final level
-                updateData.spotCoins = FieldValue.increment(totalReward); // Add the total accumulated rewards
-                
-                const levelUpEmbed = createGheeEmbed('🎉 LEVEL UP! 🎉', `Congrats ${message.author}! You jumped from Level **${initialLevel}** to **Level ${level}**!`)
-                    .addFields({ name: 'Reward', value: `You received a total of **🪙 ${totalReward} Spot Coins**!` });
-
-                if (finalRoleToGrant) {
-                    const role = await message.guild.roles.fetch(finalRoleToGrant.roleId).catch(() => null);
-                    if (role) {
-                        try {
-                            await message.member.roles.add(role);
-                            levelUpEmbed.addFields({ name: 'Role Unlocked!', value: `You have been granted the **${finalRoleToGrant.roleName}** role!` });
-                        } catch (e) { console.error(`Failed to grant level role:`, e); }
-                    }
-                }
-                
-                // Send announcement logic
-                const guildConfigDoc = await db.collection('guilds').doc(guildId).get();
-                let announcementChannel = message.channel;
-                if (guildConfigDoc.exists && guildConfigDoc.data().levelUpChannelId) {
-                    const configuredChannel = await message.guild.channels.fetch(guildConfigDoc.data().levelUpChannelId).catch(() => null);
-                    if (configuredChannel && configuredChannel.isTextBased()) announcementChannel = configuredChannel;
-                }
-                announcementChannel.send({ embeds: [levelUpEmbed] }).catch(e => console.error(`Could not send level up message.`));
+                console.log(`[XP-DEBUG] Step 6: Level up confirmed. Final level: ${level}. Total reward: ${totalReward}.`);
+                updateData.level = level;
+                updateData.spotCoins = FieldValue.increment(totalReward);
+                // ... The rest of the level up logic for sending messages ...
             }
+            
+            console.log(`[XP-DEBUG] Step 7: Committing transaction to database.`);
             transaction.set(userDocRef, updateData, { merge: true });
         });
+        console.log(`[XP-DEBUG] Step 8: XP transaction for user ${userId} complete.`);
     } catch (error) {
-        console.error(`XP Transaction failed for user ${userId}:`, error);
+        console.error(`[XP-DEBUG] XP Transaction FAILED for user ${userId}:`, error);
     }
 }
 
