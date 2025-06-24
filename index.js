@@ -33,50 +33,88 @@ const client = new Client({
     ]
 });
 
-// --- Client Collections & Handlers ---
+// --- Client Collections for Caching & State Management ---
 client.commands = new Collection();
 client.voiceUsers = new Collection();
 client.greetingKeywords = new Collection();
 client.greetingCooldowns = new Collection();
-// ... (Your existing command and event loader loops should remain here) ...
+
+// --- Command Handling ---
+console.log('Loading commands...');
+const foldersPath = path.join(__dirname, 'commands');
+const commandFolders = fs.readdirSync(foldersPath);
+for (const folder of commandFolders) {
+    const commandsPath = path.join(foldersPath, folder);
+    if (!fs.statSync(commandsPath).isDirectory()) continue;
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+    for (const file of commandFiles) {
+        const filePath = path.join(commandsPath, file);
+        const command = require(filePath);
+        if ('data' in command && 'execute' in command) {
+            command.category = folder;
+            client.commands.set(command.data.name, command);
+        } else {
+            console.warn(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+        }
+    }
+}
+
+// --- Event Handling ---
+console.log('Loading events...');
+const eventsPath = path.join(__dirname, 'events');
+const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+for (const file of eventFiles) {
+    const filePath = path.join(eventsPath, file);
+    const event = require(filePath);
+    if (event.once) {
+        client.once(event.name, (...args) => event.execute(...args, db));
+    } else {
+        client.on(event.name, (...args) => event.execute(...args, db));
+    }
+}
 
 // --- Background Task Initialization ---
+const { triggerGheeDrop } = require('./utils/eventManager'); 
+const config = require('./config');
+
 client.once(Events.ClientReady, readyClient => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
-    console.log("Bot is in a stable state. Background tasks are temporarily disabled for debugging.");
 
-    /*
-    // The background tasks are disabled below to find the source of the hang.
-    // We will re-enable them one by one to isolate the issue.
-    
-    // const { triggerGheeDrop } = require('./utils/eventManager'); 
-    // const config = require('./config');
+    // --- Ghee Drop Event Trigger (Re-enabled & Stabilized) ---
+    console.log("Setting up periodic Ghee Drop trigger...");
+    setInterval(() => {
+        readyClient.guilds.cache.forEach(guild => {
+            // Self-contained async function to prevent unhandled promise rejections
+            (async () => {
+                try {
+                    if (Math.random() < 0.05) { // 5% chance every 10 minutes
+                        await triggerGheeDrop(guild, db);
+                    }
+                } catch (error) {
+                    console.error(`Error in Ghee Drop task for guild ${guild.id}:`, error);
+                }
+            })();
+        });
+    }, 10 * 60 * 1000);
 
-    // // Ghee Drop Event Trigger (DISABLED)
-    // setInterval(() => {
-    //     readyClient.guilds.cache.forEach(guild => {
-    //         if (Math.random() < 0.05) { 
-    //             triggerGheeDrop(guild, db);
-    //         }
-    //     });
-    // }, 10 * 60 * 1000);
+    // --- Voice XP Granting Interval (Re-enabled & Stabilized) ---
+    console.log("Setting up periodic Voice XP granting...");
+    setInterval(() => {
+        const promises = [];
+        readyClient.voiceUsers.forEach((voiceData, userId) => {
+            const userRef = db.collection('users').doc(`${voiceData.guildId}-${userId}`);
+            const promise = userRef.set({
+                voiceXp: FieldValue.increment(config.XP_PER_VOICE_MINUTE || 2), // Default to 2 if not in config
+                spotCoins: FieldValue.increment(1) 
+            }, { merge: true });
+            promises.push(promise);
+        });
 
-    // // Voice XP Granting Interval (DISABLED)
-    // setInterval(() => {
-    //     const promises = [];
-    //     readyClient.voiceUsers.forEach((voiceData, userId) => {
-    //         const userRef = db.collection('users').doc(`${voiceData.guildId}-${userId}`);
-    //         const promise = userRef.set({
-    //             voiceXp: FieldValue.increment(config.XP_PER_VOICE_MINUTE),
-    //             spotCoins: FieldValue.increment(1) 
-    //         }, { merge: true });
-    //         promises.push(promise);
-    //     });
-
-    //     Promise.all(promises)
-    //         .catch(error => console.error("Error during batch voice XP update:", error));
-    // }, 60 * 1000);
-    */
+        if (promises.length > 0) {
+            Promise.all(promises)
+                .catch(error => console.error("Error during batch voice XP update:", error));
+        }
+    }, 60 * 1000);
 });
 
 // --- Bot Login ---
@@ -85,4 +123,3 @@ if (!process.env.DISCORD_TOKEN) {
     process.exit(1);
 }
 client.login(process.env.DISCORD_TOKEN);
-
