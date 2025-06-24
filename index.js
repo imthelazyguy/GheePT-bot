@@ -1,14 +1,4 @@
 // index.js
-// --- GLOBAL ERROR HANDLERS ---
-process.on('unhandledRejection', error => {
-    console.error('Unhandled promise rejection:', error);
-});
-process.on('uncaughtException', error => {
-    console.error('Uncaught exception:', error);
-    process.exit(1);
-});
-
-// --- Core Imports ---
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, Events } = require('discord.js');
@@ -86,23 +76,17 @@ for (const file of eventFiles) {
 // --- Background Task Initialization ---
 client.once(Events.ClientReady, readyClient => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
+    console.log("NOTE: Voice XP and Ghee Drop background tasks are temporarily disabled to ensure bot stability.");
 
-    // =========================================================================
-    // --- DEBUGGING: BACKGROUND TASKS ARE TEMPORARILY DISABLED ---
-    // The silent hang is very likely caused by one of these tasks.
-    // Disabling them will confirm if they are the source of the problem.
-    // PLEASE ENSURE THIS ENTIRE COMMENT BLOCK (from /* to */) IS COPIED
-    // =========================================================================
-    console.log('[DEBUG] Voice XP and Ghee Drop tasks are DISABLED for this session.');
-    
     /*
+    // The background tasks that were causing the application to hang are disabled below.
+    // We will debug and re-enable them in a future step.
+    
     const { triggerGheeDrop } = require('./utils/eventManager'); 
     const config = require('./config');
 
-    // --- Ghee Drop Trigger (DISABLED) ---
-    console.log("Setting up periodic Ghee Drop trigger...");
+    // Ghee Drop Event Trigger (DISABLED)
     setInterval(() => {
-        if (process.env.DEBUG_MODE === 'true') console.log('[DEBUG] Running Ghee Drop check...');
         readyClient.guilds.cache.forEach(guild => {
             if (Math.random() < 0.05) { 
                 triggerGheeDrop(guild, db);
@@ -110,10 +94,8 @@ client.once(Events.ClientReady, readyClient => {
         });
     }, 10 * 60 * 1000);
 
-    // --- Voice XP Granting Interval (DISABLED) ---
-    console.log("Setting up periodic Voice XP granting...");
+    // Voice XP Granting Interval (DISABLED)
     setInterval(() => {
-        if (process.env.DEBUG_MODE === 'true') console.log(`[DEBUG] Running Voice XP check for ${readyClient.voiceUsers.size} users.`);
         const promises = [];
         readyClient.voiceUsers.forEach((voiceData, userId) => {
             const userRef = db.collection('users').doc(`${voiceData.guildId}-${userId}`);
