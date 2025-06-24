@@ -6,31 +6,33 @@ module.exports = {
     category: 'utility',
     data: new SlashCommandBuilder()
         .setName('ping')
-        .setDescription('Checks how fast I am. (Spoiler: very fast).'),
+        .setDescription('Checks the bot\'s latency and response time.'),
 
     async execute(interaction) {
-        console.log('[DEBUG] /ping: Step A - Entered execute function.');
+        console.log('[PING_DEBUG] Step A: Entered execute function.');
         
-        console.log('[DEBUG] /ping: Step B - About to defer reply...');
-        const sent = await interaction.deferReply({ fetchReply: true });
-        console.log('[DEBUG] /ping: Step C - Reply deferred successfully.');
+        try {
+            console.log('[PING_DEBUG] Step B: About to send initial reply (deferReply)...');
+            const sent = await interaction.deferReply({ fetchReply: true });
+            console.log('[PING_DEBUG] Step C: Initial reply sent successfully.');
 
-        console.log('[DEBUG] /ping: Step D - Calculating latencies...');
-        const websocketHeartbeat = interaction.client.ws.ping;
-        const roundtripLatency = sent.createdTimestamp - interaction.createdTimestamp;
-        console.log(`[DEBUG] /ping: Step E - Latencies calculated. WS: ${websocketHeartbeat}ms, RT: ${roundtripLatency}ms.`);
+            console.log('[PING_DEBUG] Step D: Calculating latencies...');
+            const websocketHeartbeat = interaction.client.ws.ping;
+            const roundtripLatency = sent.createdTimestamp - interaction.createdTimestamp;
+            console.log(`[PING_DEBUG] Step E: Latencies calculated.`);
 
-        const embed = createGheeEmbed(
-            '🏓 Pong! Here\'s the Deal.',
-            "Yeah, I'm pretty quick. Try to keep up."
-        ).addFields(
-            { name: 'API Latency (Roundtrip)', value: `\`${roundtripLatency}ms\``, inline: true },
-            { name: 'WebSocket Ping', value: `\`${websocketHeartbeat}ms\``, inline: true }
-        );
-        console.log('[DEBUG] /ping: Step F - Embed built.');
+            const embed = createGheeEmbed('🏓 Pong!', "Yeah, I'm pretty quick. Try to keep up.")
+                .addFields(
+                    { name: 'API Latency (Roundtrip)', value: `\`${roundtripLatency}ms\``, inline: true },
+                    { name: 'WebSocket Ping', value: `\`${websocketHeartbeat}ms\``, inline: true }
+                );
+            console.log('[PING_DEBUG] Step F: Embed built.');
 
-        console.log('[DEBUG] /ping: Step G - About to send final reply...');
-        await interaction.editReply({ embeds: [embed] });
-        console.log('[DEBUG] /ping: Step H - Final reply sent.');
+            console.log('[PING_DEBUG] Step G: About to send final reply (editReply)...');
+            await interaction.editReply({ embeds: [embed] });
+            console.log('[PING_DEBUG] Step H: Final reply sent.');
+        } catch (e) {
+            console.error('[PING_DEBUG] CRITICAL ERROR IN PING COMMAND:', e);
+        }
     },
 };
