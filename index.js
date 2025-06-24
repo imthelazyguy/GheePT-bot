@@ -38,6 +38,7 @@ client.commands = new Collection();
 client.voiceUsers = new Collection();
 client.greetingKeywords = new Collection();
 client.greetingCooldowns = new Collection();
+client.activeRouletteGames = new Map(); // For the multiplayer roulette game state
 
 // --- Command Handling ---
 console.log('Loading commands...');
@@ -87,7 +88,8 @@ client.once(Events.ClientReady, readyClient => {
             // Self-contained async function to prevent unhandled promise rejections
             (async () => {
                 try {
-                    if (Math.random() < 0.05) { // 5% chance every 10 minutes
+                    // 5% chance every 10 minutes to trigger the drop
+                    if (Math.random() < 0.05) { 
                         await triggerGheeDrop(guild, db);
                     }
                 } catch (error) {
@@ -114,7 +116,7 @@ client.once(Events.ClientReady, readyClient => {
             Promise.all(promises)
                 .catch(error => console.error("Error during batch voice XP update:", error));
         }
-    }, 60 * 1000);
+    }, 60 * 1000); // Grant voice XP every 1 minute
 });
 
 // --- Bot Login ---
