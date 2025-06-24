@@ -1,17 +1,4 @@
-// =================================================================================
-// --- GLOBAL ERROR HANDLERS ---
-// This section will catch any crash and log it, giving us the final clue.
-// =================================================================================
-process.on('unhandledRejection', error => {
-    console.error('Unhandled promise rejection:', error);
-});
-process.on('uncaughtException', error => {
-    console.error('Uncaught exception:', error);
-    process.exit(1);
-});
-
-
-// --- Core Imports ---
+// index.js
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, Events } = require('discord.js');
@@ -53,23 +40,78 @@ client.greetingKeywords = new Collection();
 client.greetingCooldowns = new Collection();
 
 // --- Command Handling ---
-// ... (Your existing command loader loop)
+console.log('Loading commands...');
+const foldersPath = path.join(__dirname, 'commands');
+const commandFolders = fs.readdirSync(foldersPath);
+for (const folder of commandFolders) {
+    const commandsPath = path.join(foldersPath, folder);
+    if (!fs.statSync(commandsPath).isDirectory()) continue;
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+    for (const file of commandFiles) {
+        const filePath = path.join(commandsPath, file);
+        const command = require(filePath);
+        if ('data' in command && 'execute' in command) {
+            command.category = folder;
+            client.commands.set(command.data.name, command);
+        } else {
+            console.warn(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+        }
+    }
+}
 
 // --- Event Handling ---
-// ... (Your existing event loader loop)
+console.log('Loading events...');
+const eventsPath = path.join(__dirname, 'events');
+const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+for (const file of eventFiles) {
+    const filePath = path.join(eventsPath, file);
+    const event = require(filePath);
+    if (event.once) {
+        client.once(event.name, (...args) => event.execute(...args, db));
+    } else {
+        client.on(event.name, (...args) => event.execute(...args, db));
+    }
+}
 
 // --- Background Task Initialization ---
 const { triggerGheeDrop } = require('./utils/eventManager'); 
 const config = require('./config');
+
 client.once(Events.ClientReady, readyClient => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
 
     console.log("Setting up periodic Ghee Drop trigger...");
-    // ... (Your setInterval for Ghee Drop)
+    setInterval(() => {
+        readyClient.guilds.cache.forEach(guild => {
+            if (Math.random() < 0.05) { 
+                triggerGheeDrop(guild, db);
+            }
+        });
+    }, 10 * 60 * 1000);
 
     console.log("Setting up periodic Voice XP granting...");
-    // ... (Your setInterval for Voice XP)
+    // FIX: This logic is now corrected to handle asynchronous database updates properly.
+    setInterval(() => {
+        const promises = [];
+        readyClient.voiceUsers.forEach((voiceData, userId) => {
+            const userRef = db.collection('users').doc(`${voiceData.guildId}-${userId}`);
+            // Use Promise.all to handle all database writes concurrently and safely.
+            const promise = userRef.set({
+                voiceXp: FieldValue.increment(config.XP_PER_VOICE_MINUTE),
+                spotCoins: FieldValue.increment(1) 
+            }, { merge: true });
+            promises.push(promise);
+        });
+
+        Promise.all(promises)
+            .catch(error => console.error("Error during batch voice XP update:", error));
+    }, 60 * 1000); // Grant voice XP every 1 minute
 });
 
 // --- Bot Login ---
+if (!process.env.DISCORD_TOKEN) {
+    console.error("DISCORD_TOKEN not found. Bot cannot start.");
+    process.exit(1);
+}
 client.login(process.env.DISCORD_TOKEN);
+
