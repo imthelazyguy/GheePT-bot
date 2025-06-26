@@ -3,8 +3,8 @@
 module.exports = {
     // XP & Leveling System
     XP_COOLDOWN_SECONDS: 60,
-    XP_PER_MESSAGE_MIN: 5,
-    XP_PER_MESSAGE_MAX: 15,
+    XP_PER_MESSAGE_MIN: 1,
+    XP_PER_MESSAGE_MAX: 5,
     XP_PER_VOICE_MINUTE: 2,
     LEVEL_UP_REWARD_BASE: 100,
 
