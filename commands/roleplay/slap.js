@@ -1,18 +1,25 @@
 // commands/roleplay/slap.js
 const { SlashCommandBuilder } = require('discord.js');
 const { createGheeEmbed } = require('../../utils/embeds');
+const { getGif } = require('../../utils/gifFetcher');
 
 module.exports = {
+    category: 'roleplay',
     data: new SlashCommandBuilder()
         .setName('slap')
-        .setDescription('Slap some sense into someone.')
-        .addUserOption(option => option.setName('user').setDescription('The person you want to slap.').setRequired(true)),
+        .setDescription('Sometimes, a slap is necessary.')
+        .addUserOption(option => option.setName('user').setDescription('The person who needs a slap.').setRequired(true)),
 
     async execute(interaction) {
+        await interaction.deferReply();
         const user = interaction.user;
         const target = interaction.options.getUser('user');
-        const embed = createGheeEmbed('Ouch!', `${user} slaps ${target} across the face! That's gotta sting.`)
-            .setImage('https://i.imgur.com/o2SJYUS.gif');
-        await interaction.reply({ embeds: [embed] });
+        
+        const gifUrl = await getGif('anime slap');
+        
+        const embed = createGheeEmbed('Ouch!', `${user} walks up and slaps ${target}! How rude.`)
+            .setImage(gifUrl);
+            
+        await interaction.editReply({ embeds: [embed] });
     },
 };
