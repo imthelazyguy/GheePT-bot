@@ -1,11 +1,19 @@
 # nixpacks.toml
 
-[phases.build]
+# Define the installation phase
+[phases.install]
 # System packages required by the 'canvas' library
 aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev"]
-# Commands to run during the build phase, in order
-cmds = ["npm install", "npm run deploy"]
+# The command to install npm dependencies
+cmds = ["npm install"]
 
+# Define the build phase
+[phases.build]
+# The command to deploy slash commands after installation is complete
+cmds = ["npm run deploy"]
+
+# Define the start phase
 [start]
 # The command to start the bot after the build is complete
 cmd = "npm start"
+
