@@ -1,123 +1,14 @@
 // events/interactionCreate.js
-const { Events, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, MessageFlags } = require('discord.js');
+const { Events, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder } = require('discord.js');
 const { createErrorEmbed, createSuccessEmbed, createGheeEmbed } = require('../utils/embeds');
 const { FieldValue } = require('firebase-admin/firestore');
 const Roulette = require('../utils/roulette');
 const Blackjack = require('../utils/blackjack');
 const { activeGames: activeBlackjackGames } = require('../commands/economy/blackjack');
 
-// =================================================================================
-// --- HANDLER FUNCTIONS - FULL IMPLEMENTATIONS ---
-// =================================================================================
 
-async function handleCommand(interaction, db) {
-    const command = interaction.client.commands.get(interaction.commandName);
-    if (!command) {
-        console.error(`No command matching ${interaction.commandName} was found.`);
-        return;
-    }
-    try {
-        await command.execute(interaction, db);
-    } catch (error) {
-        console.error(`Error executing command ${interaction.commandName}:`, error);
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: 'There was a critical error while executing this command!', ephemeral: true });
-        } else {
-            await interaction.reply({ content: 'There was a critical error while executing this command!', ephemeral: true });
-        }
-    }
-}
-
-// --- Roulette Handlers (New Multiplayer Logic) ---
-
-async function handleRouletteButton(interaction) {
-    const [context, channelId, action] = interaction.customId.split('_');
-    const game = interaction.client.activeRouletteGames.get(channelId);
-
-    if (!game) {
-        return interaction.update({ content: 'This roulette game has expired or has been restarted.', components: [], embeds: [] });
-    }
-
-    if (game.state !== 'betting' && action === 'join') {
-        return interaction.reply({ embeds: [createErrorEmbed("Sorry, betting for this game has closed.")], ephemeral: true });
-    }
-    
-    const isHost = interaction.user.id === game.hostId;
-
-    if (action === 'cancel') {
-        if (!isHost) return interaction.reply({ embeds: [createErrorEmbed("Only the host can cancel the game.")], ephemeral: true });
-        clearTimeout(game.timeout);
-        const embed = new EmbedBuilder(game.message.embeds[0].data).setDescription('This game was cancelled by the host.').setColor('Red');
-        await game.message.edit({ embeds: [embed], components: [] });
-        interaction.client.activeRouletteGames.delete(channelId);
-        return interaction.update({ content: 'Game cancelled.', embeds: [], components:[]});
-    } 
-    
-    if (action === 'spin') {
-        if (!isHost) return interaction.reply({ embeds: [createErrorEmbed("Only the host can spin the wheel early.")], ephemeral: true });
-        if (game.players.size === 0) return interaction.reply({ embeds: [createErrorEmbed("Can't spin yet, nobody has placed a bet!")], ephemeral: true });
-        await spinRouletteWheel(interaction.client, channelId);
-    } 
-    
-    if (action === 'join') {
-        const modal = new ModalBuilder().setCustomId(`roulette_${channelId}_modal_placeBet`).setTitle('Place Your Roulette Bet');
-        const amountInput = new TextInputBuilder().setCustomId('bet_amount').setLabel("How much do you want to bet?").setStyle(TextInputStyle.Short).setRequired(true);
-        const typeInput = new TextInputBuilder().setCustomId('bet_type').setLabel("Bet type (number, red, black, even, odd)").setStyle(TextInputStyle.Short).setRequired(true);
-        const valueInput = new TextInputBuilder().setCustomId('bet_value').setLabel("Bet value (e.g., 17, or blank for colors)").setStyle(TextInputStyle.Short).setRequired(false);
-        modal.addComponents(new ActionRowBuilder().addComponents(amountInput), new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(valueInput));
-        await interaction.showModal(modal);
-    }
-}
-
-async function handleRouletteModal(interaction) {
-    const [context, channelId, modalAction] = interaction.customId.split('_');
-    const game = interaction.client.activeRouletteGames.get(channelId);
-    if (!game || game.state !== 'betting') return interaction.reply({ embeds: [createErrorEmbed("Betting has closed for this game.")], ephemeral: true });
-
-    await interaction.deferReply({ ephemeral: true });
-    
-    const betAmount = parseInt(interaction.fields.getTextInputValue('bet_amount'), 10);
-    const betTypeRaw = interaction.fields.getTextInputValue('bet_type').toLowerCase();
-    let betValue = interaction.fields.getTextInputValue('bet_value');
-    
-    if (isNaN(betAmount) || betAmount <= 0) return interaction.editReply({ embeds: [createErrorEmbed("Please enter a valid bet amount.")] });
-    
-    let finalBetType, finalBetValue;
-    const validTypes = ['number', 'red', 'black', 'even', 'odd'];
-    if (!validTypes.includes(betTypeRaw)) return interaction.editReply({ embeds: [createErrorEmbed("Invalid bet type. Use 'number', 'red', 'black', 'even', or 'odd'.")] });
-
-    if (betTypeRaw === 'number') {
-        const num = parseInt(betValue, 10);
-        if (isNaN(num) || num < 0 || num > 36) return interaction.editReply({ embeds: [createErrorEmbed("For a 'number' bet, please provide a value between 0 and 36.")] });
-        finalBetType = 'number';
-        finalBetValue = num.toString();
-    } else {
-        finalBetType = (betTypeRaw === 'red' || betTypeRaw === 'black') ? 'color' : 'parity';
-        finalBetValue = betTypeRaw;
-    }
-
-    const userRef = game.db.collection('users').doc(`${interaction.guild.id}-${interaction.user.id}`);
-    try {
-        await game.db.runTransaction(async t => {
-            const doc = await t.get(userRef);
-            if (!doc.exists || (doc.data().spotCoins || 0) < betAmount) throw new Error("You don't have enough Spot Coins for that bet.");
-            t.update(userRef, { spotCoins: FieldValue.increment(-betAmount) });
-        });
-    } catch (error) {
-        return interaction.editReply({ embeds: [createErrorEmbed(error.message)] });
-    }
-
-    game.players.set(interaction.user.id, { betType: finalBetType, betValue: finalBetValue, betAmount });
-
-    let playersString = '';
-    for (const [userId, bet] of game.players.entries()) {
-        playersString += `\n<@${userId}> - 🪙 ${bet.betAmount.toLocaleString()} on **${bet.betValue}**`;
-    }
-    const updatedEmbed = new EmbedBuilder(game.message.embeds[0].data).setFields({ name: 'Players & Bets', value: playersString });
-    
-    await game.message.edit({ embeds: [updatedEmbed] });
-    await interaction.editReply({ embeds: [createSuccessEmbed(`Your bet of **${betAmount} SC** on **${finalBetValue}** has been placed!`)] });
-}
+// --- ROULETTE HANDLER FUNCTIONS ---
+// This logic is now self-contained within this file
 
 async function spinRouletteWheel(client, channelId) {
     const game = client.activeRouletteGames.get(channelId);
@@ -156,10 +47,6 @@ async function spinRouletteWheel(client, channelId) {
     client.activeRouletteGames.delete(channelId);
 }
 
-// --- Other Handlers (Blackjack, Proposals, etc.) ---
-// ... (Your complete, working handler functions for other features go here) ...
-
-
 // =================================================================================
 // --- MAIN INTERACTION ROUTER ---
 // =================================================================================
@@ -167,45 +54,104 @@ async function spinRouletteWheel(client, channelId) {
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction, db) {
+        
+        // --- SLASH COMMANDS ---
         if (interaction.isChatInputCommand()) {
-            await handleCommand(interaction, db);
-            return;
-        }
-
-        if (interaction.isAutocomplete()) {
             const command = interaction.client.commands.get(interaction.commandName);
-            if (!command || !command.autocomplete) return;
-            try { await command.autocomplete(interaction, db); } catch (e) { console.error(e); }
+            if (!command) {
+                console.error(`No command matching ${interaction.commandName} was found.`);
+                return;
+            }
+            try {
+                await command.execute(interaction, db);
+            } catch (error) {
+                console.error(`Error executing ${interaction.commandName}`, error);
+            }
             return;
         }
 
-        const [context] = interaction.customId.split('_');
-
+        // --- BUTTONS ---
         if (interaction.isButton()) {
-            switch (context) {
-                case 'roulette':
-                    await handleRouletteButton(interaction);
-                    break;
-                // Add other button handlers here
-                // case 'blackjack':
-                //     await handleBlackjackButton(interaction, db);
-                //     break;
-                // case 'accept':
-                // case 'decline':
-                //     await handleProposalButton(interaction, db);
-                //     break;
-                default:
-                    console.log(`Received unhandled button interaction: ${interaction.customId}`);
+            const [context, channelId, action] = interaction.customId.split('_');
+
+            if (context === 'roulette') {
+                const game = interaction.client.activeRouletteGames.get(channelId);
+                if (!game) return interaction.update({ content: 'This roulette game has expired.', components: [], embeds: [] });
+
+                const isHost = interaction.user.id === game.hostId;
+
+                if (action === 'cancel') {
+                    if (!isHost) return interaction.reply({ embeds: [createErrorEmbed("Only the host can cancel.")], ephemeral: true });
+                    clearTimeout(game.timeout);
+                    const embed = new EmbedBuilder(game.message.embeds[0].data).setDescription('This game was cancelled by the host.').setColor('Red');
+                    await game.message.edit({ embeds: [embed], components: [] });
+                    interaction.client.activeRouletteGames.delete(channelId);
+                } else if (action === 'spin') {
+                    if (!isHost) return interaction.reply({ embeds: [createErrorEmbed("Only the host can spin early.")], ephemeral: true });
+                    if (game.players.size === 0) return interaction.reply({ embeds: [createErrorEmbed("No one has bet yet!")], ephemeral: true });
+                    await spinRouletteWheel(interaction.client, channelId);
+                } else if (action === 'join') {
+                    const modal = new ModalBuilder().setCustomId(`roulette_${channelId}_modal_placeBet`).setTitle('Place Your Roulette Bet');
+                    const amountInput = new TextInputBuilder().setCustomId('bet_amount').setLabel("How much to bet?").setStyle(TextInputStyle.Short).setRequired(true);
+                    const typeInput = new TextInputBuilder().setCustomId('bet_type').setLabel("Bet type (number, red, black, even, odd)").setStyle(TextInputStyle.Short).setRequired(true);
+                    const valueInput = new TextInputBuilder().setCustomId('bet_value').setLabel("Value (e.g., 17, or leave blank)").setStyle(TextInputStyle.Short).setRequired(false);
+                    modal.addComponents(new ActionRowBuilder().addComponents(amountInput), new ActionRowBuilder().addComponents(typeInput), new ActionRowBuilder().addComponents(valueInput));
+                    await interaction.showModal(modal);
+                }
             }
+            // Add your other button handlers (blackjack, etc.) here
             return;
         }
 
+        // --- MODALS ---
         if (interaction.isModalSubmit()) {
+            const [context, channelId, modalAction] = interaction.customId.split('_');
+
             if (context === 'roulette') {
-                await handleRouletteModal(interaction);
+                const game = interaction.client.activeRouletteGames.get(channelId);
+                if (!game) return interaction.reply({ embeds: [createErrorEmbed("This game has ended.")], ephemeral: true });
+
+                await interaction.deferReply({ ephemeral: true });
+    
+                const betAmount = parseInt(interaction.fields.getTextInputValue('bet_amount'), 10);
+                const betTypeRaw = interaction.fields.getTextInputValue('bet_type').toLowerCase();
+                let betValue = interaction.fields.getTextInputValue('bet_value');
+    
+                let finalBetType, finalBetValue;
+                const validTypes = ['number', 'red', 'black', 'even', 'odd'];
+                if (!validTypes.includes(betTypeRaw)) return interaction.editReply({ embeds: [createErrorEmbed("Invalid bet type.")] });
+
+                if (betTypeRaw === 'number') {
+                    const num = parseInt(betValue, 10);
+                    if (isNaN(num) || num < 0 || num > 36) return interaction.editReply({ embeds: [createErrorEmbed("Invalid number for 'number' bet.")] });
+                    finalBetType = 'number';
+                    finalBetValue = num.toString();
+                } else {
+                    finalBetType = (betTypeRaw === 'red' || betTypeRaw === 'black') ? 'color' : 'parity';
+                    finalBetValue = betTypeRaw;
+                }
+                
+                const userRef = db.collection('users').doc(`${interaction.guild.id}-${interaction.user.id}`);
+                try {
+                    await db.runTransaction(async t => {
+                        const doc = await t.get(userRef);
+                        if (!doc.exists || (doc.data().spotCoins || 0) < betAmount) throw new Error("You don't have enough Spot Coins.");
+                        t.update(userRef, { spotCoins: FieldValue.increment(-betAmount) });
+                    });
+                } catch (error) {
+                    return interaction.editReply({ embeds: [createErrorEmbed(error.message)] });
+                }
+
+                game.players.set(interaction.user.id, { betType: finalBetType, betValue: finalBetValue, betAmount });
+
+                let playersString = '';
+                for (const [userId, bet] of game.players.entries()) playersString += `\n<@${userId}> - 🪙 ${bet.betAmount.toLocaleString()} on **${bet.betValue}**`;
+                const updatedEmbed = new EmbedBuilder(game.message.embeds[0].data).setFields({ name: 'Players & Bets', value: playersString });
+    
+                await game.message.edit({ embeds: [updatedEmbed] });
+                await interaction.editReply({ embeds: [createSuccessEmbed(`Your bet of **${betAmount} SC** on **${finalBetValue}** is placed!`)] });
             }
-            // Add other modal handlers here
-            return;
         }
     },
+    spinRouletteWheel // Export for use in the command file
 };
