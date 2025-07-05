@@ -1,8 +1,8 @@
-# nixpacks.toml - The definitive configuration for a Discord.js bot with 'canvas' on Railway
+# nixpacks.toml - The definitive configuration for a Discord.js bot with 'canvas' on Railway's Nixpacks builder
 
 # Phase 1: Setup System Dependencies
-# This uses the Nix package manager, which is the core of the Nixpacks builder.
-# It is the most reliable way to install these required system libraries.
+# This uses the Nix package manager (`nixPkgs`), which is the core of the Nixpacks builder.
+# It is the most reliable way to install the required system libraries for 'canvas'.
 [phases.setup]
 nixPkgs = ["pkgs.cairo", "pkgs.pango", "pkgs.libjpeg", "pkgs.giflib", "pkgs.pkg-config"]
 
