@@ -1,30 +1,33 @@
 // commands/fun/horny.js
-const { SlashCommandBuilder } = require('discord.js');
-const { createGheeEmbed } = require('../../utils/embeds');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { createAttributeCard } = require('../../utils/imageGenerator');
 
-function getSeededRandom(seed) {
-    let x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-}
+function getSeededRandom(seed) { let x = Math.sin(seed) * 10000; return x - Math.floor(x); }
 
 module.exports = {
+    category: 'fun',
     data: new SlashCommandBuilder()
         .setName('horny')
-        .setDescription('Check the Arousometer reading.')
-        .addUserOption(option => option.setName('user').setDescription('The user to scan')),
-
+        .setDescription("Checks a user's horniness level.")
+        .addUserOption(option => option.setName('user').setDescription('The user to check')),
     async execute(interaction) {
         await interaction.deferReply();
         const targetUser = interaction.options.getUser('user') || interaction.user;
-
         const timeSeed = Math.floor(Date.now() / (1000 * 60 * 60 * 12));
-        const combinedSeed = parseInt(targetUser.id.slice(-4)) + timeSeed;
+        const combinedSeed = parseInt(targetUser.id.slice(-6)) + timeSeed;
+        const percentage = Math.round(getSeededRandom(combinedSeed) * 100);
 
-        const percentage = Math.floor(getSeededRandom(combinedSeed) * 101);
-        
-        const responseMessage = `GheePT's 'Arousometer' just exploded. **${targetUser.username}**'s horny levels are at **${percentage}%** for the next 12 hours. Please find a chill pill or a private channel.`; // 
-
-        const embed = createGheeEmbed('🥵 Arousometer', responseMessage);
-        await interaction.editReply({ embeds: [embed] });
+        try {
+            const imageUrl = await createAttributeCard("Arousometer", `${percentage}% Horny`, percentage);
+            if (!imageUrl) throw new Error("API did not return a valid image URL.");
+            const embed = new EmbedBuilder()
+                .setColor('#DC143C')
+                .setAuthor({ name: `${targetUser.username}'s Horny Reading`, iconURL: targetUser.displayAvatarURL() })
+                .setImage(imageUrl);
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: "Sorry, my Arousometer just exploded. Try again later." });
+        }
     },
 };
