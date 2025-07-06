@@ -1,5 +1,5 @@
 // commands/fun/pp.js
-const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { OWNER_IDS } = require('../../config');
 const { createPPCard } = require('../../utils/imageGenerator');
 
@@ -12,7 +12,7 @@ module.exports = {
     category: 'fun',
     data: new SlashCommandBuilder()
         .setName('pp')
-        .setDescription('Measure your... potential power. (Image Edition)')
+        .setDescription('Measure your... potential power. (API Edition)')
         .addUserOption(option => option.setName('user').setDescription('The user to measure')),
 
     async execute(interaction) {
@@ -25,12 +25,21 @@ module.exports = {
         const size = OWNER_IDS.includes(targetUser.id) ? 12 : Math.floor(getSeededRandom(combinedSeed) * 11) + 1;
         
         try {
-            const imageBuffer = await createPPCard(targetUser, size);
-            const attachment = new AttachmentBuilder(imageBuffer, { name: 'pp-card.png' });
-            await interaction.editReply({ files: [attachment] });
+            // The generator now returns a URL to the image
+            const imageUrl = await createPPCard(targetUser, size);
+            if (!imageUrl) throw new Error("API did not return a valid image URL.");
+
+            // We create an embed and put the user's avatar in the thumbnail,
+            // and the generated card as the main image.
+            const embed = new EmbedBuilder()
+                .setColor('#23272A')
+                .setThumbnail(targetUser.displayAvatarURL())
+                .setImage(imageUrl);
+
+            await interaction.editReply({ embeds: [embed] });
         } catch (error) {
-            console.error("Failed to create PP card:", error);
-            await interaction.editReply("Sorry, my canvas exploded. Couldn't draw your card.");
+            console.error("Failed to create PP card via API:", error);
+            await interaction.editReply("Sorry, the image generation service is down. Couldn't create your card.");
         }
     },
 };
