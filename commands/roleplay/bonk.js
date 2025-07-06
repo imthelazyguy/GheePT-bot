@@ -1,7 +1,7 @@
 // commands/roleplay/bonk.js
 const { SlashCommandBuilder } = require('discord.js');
 const { createGheeEmbed } = require('../../utils/embeds');
-const { getGif } = require('../../utils/gifFetcher');
+const { getGif } = require('../../utils/gifFetcher'); // This line is the fix
 
 module.exports = {
     category: 'roleplay',
@@ -14,12 +14,8 @@ module.exports = {
         await interaction.deferReply();
         const user = interaction.user;
         const target = interaction.options.getUser('user');
-        
-        const gifUrl = await getGif('anime bonk');
-        
-        const embed = createGheeEmbed('BONK!', `${user} sends ${target} to horny jail.`)
-            .setImage(gifUrl);
-            
+        const gifUrl = await getGif('anime bonk'); // Using Tenor
+        const embed = createGheeEmbed('BONK!', `${user} sends ${target} to horny jail.`).setImage(gifUrl);
         await interaction.editReply({ embeds: [embed] });
     },
 };
