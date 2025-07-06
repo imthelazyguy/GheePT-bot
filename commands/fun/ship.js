@@ -1,44 +1,41 @@
 // commands/fun/ship.js
-const { SlashCommandBuilder } = require('discord.js');
-const { createGheeEmbed } = require('../../utils/embeds');
-
-function getSeededRandom(seed) {
-    let x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-}
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { createShipCard } = require('../../utils/imageGenerator');
 
 module.exports = {
+    category: 'fun',
     data: new SlashCommandBuilder()
         .setName('ship')
         .setDescription('Calculates the compatibility between two users.')
-        .addUserOption(option => option.setName('user1').setDescription('The first user').setRequired(true))
-        .addUserOption(option => option.setName('user2').setDescription('The second user').setRequired(true)),
+        .addUserOption(option => option.setName('user1').setDescription('The first person.').setRequired(true))
+        .addUserOption(option => option.setName('user2').setDescription('The second person.').setRequired(true)),
 
     async execute(interaction) {
         await interaction.deferReply();
         const user1 = interaction.options.getUser('user1');
         const user2 = interaction.options.getUser('user2');
 
-        if (user1.id === user2.id) {
-            return interaction.editReply({ embeds: [createGheeEmbed('Self-Love ❤️', 'Shipping yourself? That\'s a 100% match, obviously.')] });
+        // Static seed based on both user IDs for a consistent result
+        const combinedId = BigInt(user1.id) + BigInt(user2.id);
+        const seed = parseInt(combinedId.toString().slice(-9));
+        let x = Math.sin(seed) * 10000;
+        const percentage = Math.round((x - Math.floor(x)) * 100);
+
+        try {
+            const imageUrl = await createShipCard(user1, user2, percentage);
+            if (!imageUrl) throw new Error("API did not return a valid image URL.");
+
+            const embed = new EmbedBuilder()
+                .setColor('#FF4560')
+                .setTitle(`Shipping ${user1.username} & ${user2.username}`)
+                .setImage(imageUrl)
+                .setThumbnail(user1.displayAvatarURL())
+                .addFields({ name: '\u200B', value: `<@${user2.id}>`, inline: true });
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error("Failed to create Ship card via API:", error);
+            await interaction.editReply({ embeds: [createErrorEmbed("My love-o-meter is broken. Try shipping later.")] });
         }
-
-        // Create a static seed from both user IDs. Sort them to ensure ship(A,B) == ship(B,A). 
-        const ids = [user1.id, user2.id].sort();
-        const combinedSeed = parseInt(ids[0].slice(-4)) + parseInt(ids[1].slice(-5));
-        
-        const percentage = Math.floor(getSeededRandom(combinedSeed) * 101);
-        
-        let duo;
-        if (percentage < 10) duo = "a perfectly spiced biryani and a forgotten spoon.";
-        else if (percentage < 30) duo = "a rickshaw and a runway model.";
-        else if (percentage < 60) duo = "a vada pav and extra chutney.";
-        else if (percentage < 85) duo = "chai and Parle-G.";
-        else duo = "Raj and Simran. Go get a room!";
-
-        const responseMessage = `GheePT's 'Match-Making Masala' has brewed a compatibility score of **${percentage}%** for **${user1.username}** and **${user2.username}**!\n\nThey're like ${duo}`; // 
-
-        const embed = createGheeEmbed('💕 Match-Making Masala', responseMessage);
-        await interaction.editReply({ embeds: [embed] });
     },
 };
