@@ -1,63 +1,95 @@
 // utils/imageGenerator.js
-const { createCanvas, loadImage, registerFont } = require('canvas');
-const path = require('path');
+const fetch = require('node-fetch');
 
-// Register a font. You might need to provide a .ttf file in your project or rely on system fonts.
-// For Railway, it's safer to bundle a font with your project.
-// registerFont(path.join(__dirname, '../fonts/YourFont.ttf'), { family: 'YourFont' });
-
-function drawProgressBar(ctx, x, y, width, height, progress) {
-    ctx.fillStyle = '#444';
-    ctx.fillRect(x, y, width, height);
-    ctx.fillStyle = '#FFD700'; // Ghee Gold
-    ctx.fillRect(x, y, width * (progress / 100), height);
+// This function creates a URL that asks the QuickChart API to render our card.
+async function createCardWithAPI(config) {
+    const url = 'https://quickchart.io/chart/create';
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chart: config,
+                backgroundColor: '#23272A', // Our dark theme background
+                width: 400,
+                height: 150,
+                format: 'png',
+            }),
+        });
+        const json = await response.json();
+        // The API returns a URL to the finished image
+        return json.url;
+    } catch (error) {
+        console.error("Failed to create card with QuickChart API:", error);
+        return null;
+    }
 }
 
+// We define a template for our /pp card
 async function createPPCard(user, size) {
-    const canvas = createCanvas(400, 150);
-    const ctx = canvas.getContext('2d');
-
-    // Background
-    ctx.fillStyle = '#23272A';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Avatar
-    const avatar = await loadImage(user.displayAvatarURL({ extension: 'png' }));
-    ctx.drawImage(avatar, 20, 25, 100, 100);
-
-    // Text
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '24px sans-serif';
-    ctx.fillText(`${user.username}'s pp`, 140, 50);
-
-    // Bar
-    const progress = (size / 12) * 100; // Assuming max size is 12
-    drawProgressBar(ctx, 140, 70, 240, 30, progress);
-
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#AAAAAA';
-    ctx.fillText(`${size} inches`, 140, 125);
+    const chartConfig = {
+        type: 'bar', // We're cleverly using a bar chart as a progress bar
+        data: {
+            labels: [''], // No label needed for a single bar
+            datasets: [{
+                data: [(size / 12) * 100], // The size as a percentage
+                backgroundColor: '#FFD700', // Ghee Gold
+                borderColor: '#FFD700',
+                borderWidth: 1,
+                barPercentage: 1.0,
+                categoryPercentage: 1.0,
+            }]
+        },
+        options: {
+            plugins: {
+                // This is how we add the text and avatar
+                chartJsPluginAnnotation: {
+                    annotations: [
+                        {
+                            type: 'box',
+                            xMin: 20, xMax: 120, yMin: 25, yMax: 125,
+                            backgroundColor: 'rgba(0,0,0,0)',
+                            borderColor: 'rgba(0,0,0,0)',
+                        },
+                        {
+                            type: 'label',
+                            content: `${user.username}'s pp`,
+                            font: { size: 24, family: 'sans-serif' },
+                            color: '#FFFFFF',
+                            xValue: 140, yValue: 50,
+                            xAdjust: -80, yAdjust: 40,
+                        },
+                        {
+                            type: 'label',
+                            content: `${size} inches`,
+                            font: { size: 18, family: 'sans-serif' },
+                            color: '#AAAAAA',
+                            xValue: 140, yValue: 125,
+                            xAdjust: -75, yAdjust: 0
+                        }
+                    ]
+                },
+                legend: { display: false },
+                title: { display: false },
+            },
+            scales: {
+                x: { display: false, min: 0, max: 100 },
+                y: { display: false }
+            },
+            // This places the progress bar correctly
+            indexAxis: 'y',
+            layout: {
+                padding: { left: 140, right: 20, top: 70, bottom: 50 }
+            }
+        }
+    };
     
-    return canvas.toBuffer('image/png');
+    // We can't directly draw the avatar, so we'll put it in the final Discord embed
+    const imageUrl = await createCardWithAPI(chartConfig);
+    return imageUrl;
 }
 
-async function createHornyCard(user, percentage) {
-    const canvas = createCanvas(400, 150);
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#23272A';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const avatar = await loadImage(user.displayAvatarURL({ extension: 'png' }));
-    ctx.drawImage(avatar, 20, 25, 100, 100);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '24px sans-serif';
-    ctx.fillText('Arousometer Reading', 140, 50);
-    drawProgressBar(ctx, 140, 70, 240, 30, percentage);
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#AAAAAA';
-    ctx.fillText(`${percentage}% horny`, 140, 125);
-    return canvas.toBuffer('image/png');
-}
+// You can create similar functions for /horny, /gay etc.
+// by copying createPPCard and changing the text content.
 
-// ... Create similar functions for /gay, etc. ...
-
-module.exports = { createPPCard, createHornyCard };
+module.exports = { createPPCard };
