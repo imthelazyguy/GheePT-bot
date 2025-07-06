@@ -1,0 +1,9 @@
+# nixpacks.toml - The definitive configuration for a Discord.js bot on Railway's Nixpacks builder
+
+# Phase 1: Install system-level libraries needed for a future canvas-like package if we add it.
+# It is safe to keep this here.
+[phases.setup]
+aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev"]
+
+# Nixpacks will automatically detect package.json and run "npm install".
+# The build and start commands will be taken from the scripts in package.json.
