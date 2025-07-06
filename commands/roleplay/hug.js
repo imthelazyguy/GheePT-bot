@@ -10,10 +10,8 @@ module.exports = {
         .addUserOption(option => option.setName('user').setDescription('The person you want to hug.').setRequired(true)),
     async execute(interaction) {
         await interaction.deferReply();
-        const user = interaction.user;
-        const target = interaction.options.getUser('user');
         const gifUrl = await getGif('anime hug');
-        const embed = createGheeEmbed('Aww, how sweet!', `${user} gives ${target} a big, warm hug!`).setImage(gifUrl);
+        const embed = createGheeEmbed('Aww, how sweet!', `${interaction.user} gives ${interaction.options.getUser('user')} a big, warm hug!`).setImage(gifUrl);
         await interaction.editReply({ embeds: [embed] });
     },
 };
