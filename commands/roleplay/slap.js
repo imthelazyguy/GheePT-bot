@@ -1,7 +1,7 @@
 // commands/roleplay/slap.js
 const { SlashCommandBuilder } = require('discord.js');
 const { createGheeEmbed } = require('../../utils/embeds');
-const { getGif } = require('../../utils/gifFetcher');
+const { getGif } = require('../../utils/gifFetcher'); // Correctly uses the new fetcher
 
 module.exports = {
     category: 'roleplay',
