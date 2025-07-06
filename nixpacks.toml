@@ -1,9 +1,21 @@
-# nixpacks.toml - The definitive configuration for a Discord.js bot on Railway's Nixpacks builder
+# nixpacks.toml - The Definitive Final Version
 
-# Phase 1: Install system-level libraries needed for a future canvas-like package if we add it.
-# It is safe to keep this here.
+# This tells Nixpacks to use the Node.js provider.
+providers = ["node"]
+
+# This phase installs Node.js version 18 itself, PLUS the required system libraries.
+# This is the line that was missing and caused all the failures.
 [phases.setup]
-aptPkgs = ["build-essential", "libcairo2-dev", "libpango1.0-dev", "libjpeg-dev", "libgif-dev", "librsvg2-dev"]
+nixPkgs = ["nodejs-18_x", "pkgs.cairo", "pkgs.pango", "pkgs.libjpeg", "pkgs.giflib", "pkgs.pkg-config"]
 
-# Nixpacks will automatically detect package.json and run "npm install".
-# The build and start commands will be taken from the scripts in package.json.
+# This phase runs after Node.js is installed. It will now find `npm`.
+[phases.install]
+cmds = ["npm install"]
+
+# This phase runs after dependencies are installed.
+[phases.build]
+cmds = ["npm run deploy"]
+
+# This is the final command to start your bot.
+[start]
+cmd = "npm start"
