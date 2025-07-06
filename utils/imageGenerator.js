@@ -1,7 +1,6 @@
 // utils/imageGenerator.js
 const fetch = require('node-fetch');
 
-// This function creates a URL that asks the QuickChart API to render our card.
 async function createCardWithAPI(config) {
     const url = 'https://quickchart.io/chart/create';
     try {
@@ -25,7 +24,7 @@ async function createCardWithAPI(config) {
     }
 }
 
-async function createAttributeCard(title, barLabel, percentage, userAvatarUrl) {
+async function createAttributeCard(title, barLabel, percentage) {
     const chartConfig = {
         type: 'progressBar',
         data: {
@@ -33,62 +32,40 @@ async function createAttributeCard(title, barLabel, percentage, userAvatarUrl) {
         },
         options: {
             plugins: {
-                datalabels: { formatter: () => '' },
+                datalabels: { display: false },
                 chartJsPluginAnnotation: {
                     annotations: [{
                         type: 'label',
                         content: title,
                         font: { size: 28, family: 'sans-serif', weight: 'bold' },
                         color: '#FFFFFF',
-                        position: { x: '160px', y: '35px' },
+                        position: { x: '50%', y: '40px' },
                     }, {
                         type: 'label',
                         content: barLabel,
                         font: { size: 20, family: 'sans-serif' },
                         color: '#B9BBBE',
-                        position: { x: '160px', y: '115px' },
+                        position: { x: '50%', y: '110px' },
                     }]
                 }
             },
-            chartArea: { backgroundColor: `url(${userAvatarUrl})` },
-            layout: { padding: { left: 140, right: 30, top: 20, bottom: 20 } }
+            layout: { padding: { top: 20 } }
         }
     };
     return await createCardWithAPI(chartConfig);
 }
 
-async function createShipCard(user1, user2, percentage) {
+async function createShipCard(percentage) {
     const chartConfig = {
         type: 'radialGauge',
-        data: {
-            datasets: [{
-                data: [percentage],
-                backgroundColor: '#FF4560',
-            }]
-        },
+        data: { datasets: [{ data: [percentage], backgroundColor: '#FF4560' }] },
         options: {
             trackColor: '#444',
             centerPercentage: true,
-            centerArea: {
-                text: (val) => `${val}%`,
-                fontColor: 'white',
-                fontSize: 40,
-            },
-            plugins: {
-                chartJsPluginAnnotation: {
-                    annotations: [{
-                        type: 'label',
-                        content: 'Compatibility',
-                        font: { size: 24, family: 'sans-serif', weight: 'bold'},
-                        color: 'white',
-                        position: { x: '50%', y: '15px'}
-                    }]
-                }
-            }
+            centerArea: { text: (val) => `${val}%`, fontColor: 'white', fontSize: 40 },
         }
     };
     return await createCardWithAPI(chartConfig);
 }
-
 
 module.exports = { createAttributeCard, createShipCard };
