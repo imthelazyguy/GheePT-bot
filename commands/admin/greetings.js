@@ -26,7 +26,10 @@ const data = new SlashCommandBuilder()
         subcommand.setName('list').setDescription('Lists all configured auto-response triggers.'))
     .addSubcommand(subcommand =>
         subcommand.setName('delete').setDescription('Deletes an entire auto-response trigger.')
-            .addStringOption(option => option.setName('name').setDescription('The name of the trigger to delete.').setRequired(true).setAutocomplete(true)));
+            .addStringOption(option => option.setName('name').setDescription('The name of the trigger to delete.').setRequired(true).setAutocomplete(true)))
+    // --- NEW SUBCOMMAND ---
+    .addSubcommand(subcommand =>
+        subcommand.setName('purge').setDescription('Deletes ALL auto-response triggers. (Server Owner Only)'));
 
 async function autocomplete(interaction, db) {
     const focusedOption = interaction.options.getFocused(true);
@@ -67,7 +70,7 @@ async function execute(interaction, db) {
                 id: triggerId,
                 name: name,
                 triggerType: triggerType,
-                triggerContent: triggerType === 'keyword' ? keyword.toLowerCase() : null, // Always store keyword in lowercase
+                triggerContent: triggerType === 'keyword' ? keyword.toLowerCase() : null,
                 matchExact: interaction.options.getBoolean('exact_match') || false,
                 replies: [],
             };
@@ -87,23 +90,78 @@ async function execute(interaction, db) {
             await interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `Trigger successfully deleted.`)] });
 
         } else if (subcommand === 'list') {
+            // --- FIX: This subcommand now uses a paginator ---
             const snapshot = await greetingsRef.get();
             if (snapshot.empty) {
                 return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, 'No auto-responders have been configured yet.')] });
             }
 
             const triggers = snapshot.docs.map(doc => doc.data());
-            const description = triggers.map(trigger => {
-                let desc = `**Name:** ${trigger.name}\n**Type:** ${trigger.triggerType}`;
-                if (trigger.triggerType === 'keyword') {
-                    desc += `\n**Keyword:** \`${trigger.triggerContent}\`\n**Match Type:** ${trigger.matchExact ? 'Exact' : 'Contains'}`;
+            const itemsPerPage = 5;
+            const totalPages = Math.ceil(triggers.length / itemsPerPage);
+            let currentPage = 0;
+
+            const generateEmbed = (page) => {
+                const start = page * itemsPerPage;
+                const end = start + itemsPerPage;
+                const currentTriggers = triggers.slice(start, end);
+
+                const embed = createGheeEmbed(`🗣️ Configured Auto-Responders (Page ${page + 1}/${totalPages})`, '');
+                
+                if (currentTriggers.length === 0) {
+                     embed.setDescription("There's nothing on this page.");
+                } else {
+                    currentTriggers.forEach(trigger => {
+                        let description = `**Type:** ${trigger.triggerType}`;
+                        if (trigger.triggerType === 'keyword') {
+                            description += `\n**Keyword:** \`${trigger.triggerContent}\`\n**Match Type:** ${trigger.matchExact ? 'Exact' : 'Contains'}`;
+                        }
+                        description += `\n**Replies:** ${(trigger.replies || []).length} configured.`;
+                        embed.addFields({ name: `Name: ${trigger.name}`, value: description });
+                    });
                 }
-                desc += `\n**Replies:** ${(trigger.replies || []).length}`;
-                return desc;
-            }).join('\n\n');
+                return embed;
+            };
             
-            const embed = createGheeEmbed('🗣️ Configured Auto-Responders', description);
-            await interaction.editReply({ embeds: [embed] });
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('greetings_list_prev').setLabel('◀️').setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId('greetings_list_next').setLabel('▶️').setStyle(ButtonStyle.Secondary).setDisabled(totalPages <= 1)
+            );
+
+            const message = await interaction.editReply({ embeds: [generateEmbed(currentPage)], components: [row] });
+            const collector = message.createMessageComponentCollector({ filter: i => i.user.id === interaction.user.id, time: 3 * 60 * 1000 });
+
+            collector.on('collect', async i => {
+                if (i.customId === 'greetings_list_next') {
+                    currentPage++;
+                } else if (i.customId === 'greetings_list_prev') {
+                    currentPage--;
+                }
+                
+                row.components[0].setDisabled(currentPage === 0);
+                row.components[1].setDisabled(currentPage >= totalPages - 1);
+                
+                await i.update({ embeds: [generateEmbed(currentPage)], components: [row] });
+            });
+
+            collector.on('end', () => message.edit({ content: 'This interaction has expired.', components: [] }).catch(console.error));
+        
+        } else if (subcommand === 'purge') {
+            // --- NEW: Purge subcommand with owner check ---
+            if (interaction.user.id !== interaction.guild.ownerId) {
+                return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, 'This action is restricted to the server owner only.')] });
+            }
+            
+            const snapshot = await greetingsRef.get();
+            if (snapshot.empty) {
+                return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, 'There are no greetings to delete.')] });
+            }
+
+            const batch = db.batch();
+            snapshot.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+
+            await interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `Successfully purged all ${snapshot.size} auto-responder triggers.`)] });
         }
     } catch (error) {
         console.error(`Error in /greetings command:`, error);
