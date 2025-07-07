@@ -1,81 +1,70 @@
 // commands/admin/level-roles.js
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { createGheeEmbed, createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
+const { createSuccessEmbed, createErrorEmbed, createGheeEmbed } = require('../../utils/embeds');
 
 module.exports = {
     category: 'admin',
     data: new SlashCommandBuilder()
-        .setName('level-roles') // Renamed the command for clarity
-        .setDescription('Configure roles granted at specific level milestones. (Admin Only)')
+        .setName('level-roles')
+        .setDescription('Manage roles awarded for leveling up.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('set')
-                .setDescription('Set a role to be granted at a specific level.')
-                .addIntegerOption(option => option.setName('level').setDescription('The level to grant the role at.').setRequired(true).setMinValue(1))
-                .addRoleOption(option => option.setName('role').setDescription('The role to grant.').setRequired(true)))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('remove')
-                .setDescription('Remove a role reward for a specific level.')
-                .addIntegerOption(option => option.setName('level').setDescription('The level to remove the role reward from.').setRequired(true).setMinValue(1)))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('list')
-                .setDescription('Lists all configured level role rewards.')),
+        .addSubcommand(subcommand => subcommand
+            .setName('add').setDescription('Add a new role reward for a specific level.')
+            .addIntegerOption(option => option.setName('level').setDescription('The level required to get this role.').setRequired(true).setMinValue(1))
+            .addRoleOption(option => option.setName('role').setDescription('The role to grant.').setRequired(true)))
+        .addSubcommand(subcommand => subcommand
+            .setName('remove').setDescription('Remove a role reward for a specific level.')
+            .addIntegerOption(option => option.setName('level').setDescription('The level whose role reward you want to remove.').setRequired(true)))
+        .addSubcommand(subcommand => subcommand
+            .setName('list').setDescription('Show all configured level role rewards.')),
 
     async execute(interaction, db) {
         await interaction.deferReply({ ephemeral: true });
         const subcommand = interaction.options.getSubcommand();
-        const guildId = interaction.guild.id;
-        const levelRolesRef = db.collection('guilds').doc(guildId).collection('level_roles');
+        const levelRolesRef = db.collection('guilds').doc(interaction.guild.id).collection('level-roles');
 
-        if (subcommand === 'set') {
+        if (subcommand === 'add') {
             const level = interaction.options.getInteger('level');
             const role = interaction.options.getRole('role');
-
+            
+            // Prevent setting a reward for a role higher than the bot's own role
             if (role.position >= interaction.guild.members.me.roles.highest.position) {
-                return interaction.editReply({ embeds: [createErrorEmbed("I cannot manage this role. Please make sure my role is positioned higher than the role you are trying to set.")] });
+                return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, `I cannot manage the **${role.name}** role because it is higher than or equal to my own role.`)] });
             }
 
-            try {
-                await levelRolesRef.doc(level.toString()).set({
-                    roleId: role.id,
-                    roleName: role.name
-                });
-                await interaction.editReply({ embeds: [createSuccessEmbed(`Users will now be granted the **${role.name}** role upon reaching Level ${level}.`)] });
-            } catch (error) {
-                console.error('Failed to set level role:', error);
-                await interaction.editReply({ embeds: [createErrorEmbed('A database error occurred.')] });
-            }
-        } else if (subcommand === 'remove') {
+            await levelRolesRef.doc(level.toString()).set({
+                level: level,
+                roleId: role.id,
+                roleName: role.name
+            });
+            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `Users will now receive the **${role.name}** role upon reaching **Level ${level}**.`)] });
+        }
+        
+        if (subcommand === 'remove') {
             const level = interaction.options.getInteger('level');
-            try {
-                await levelRolesRef.doc(level.toString()).delete();
-                await interaction.editReply({ embeds: [createSuccessEmbed(`The role reward for Level ${level} has been removed.`)] });
-            } catch (error) {
-                console.error('Failed to remove level role:', error);
-                await interaction.editReply({ embeds: [createErrorEmbed('A database error occurred.')] });
-            }
-        } else if (subcommand === 'list') {
-            try {
-                const snapshot = await levelRolesRef.get();
-                if (snapshot.empty) {
-                    return interaction.editReply({ embeds: [createErrorEmbed('No level role rewards have been configured yet.')] });
-                }
-                
-                const roles = snapshot.docs
-                    .map(doc => ({ level: parseInt(doc.id, 10), data: doc.data() }))
-                    .sort((a, b) => a.level - b.level);
+            const docRef = levelRolesRef.doc(level.toString());
+            const doc = await docRef.get();
 
-                let description = roles.map(item => `**Level ${item.level}** → <@&${item.data.roleId}>`).join('\n');
-                
-                const embed = createGheeEmbed('📋 Configured Level Roles', description);
-                await interaction.editReply({ embeds: [embed] });
-            } catch (error) {
-                console.error('Failed to list level roles:', error);
-                await interaction.editReply({ embeds: [createErrorEmbed('A database error occurred.')] });
+            if (!doc.exists) {
+                return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, `There is no role reward configured for **Level ${level}**.`)] });
             }
+            await docRef.delete();
+            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `The role reward for **Level ${level}** has been removed.`)] });
+        }
+
+        if (subcommand === 'list') {
+            const snapshot = await levelRolesRef.orderBy('level').get();
+            if (snapshot.empty) {
+                return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, 'No level role rewards have been configured.')] });
+            }
+
+            const description = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return `**Level ${data.level}** → <@&${data.roleId}>`;
+            }).join('\n');
+
+            const embed = createGheeEmbed('⚜️ Level Role Rewards', description);
+            return interaction.editReply({ embeds: [embed] });
         }
     },
 };
