@@ -1,7 +1,7 @@
 // commands/fun/pp.js
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { createAttributeCard } = require('../../utils/imageGenerator');
 const { OWNER_IDS } = require('../../config');
+const { generateProgressBar } = require('../../utils/cardGenerator');
 
 function getSeededRandom(seed) { let x = Math.sin(seed) * 10000; return x - Math.floor(x); }
 
@@ -19,18 +19,17 @@ module.exports = {
         const combinedSeed = parseInt(targetUser.id.slice(-6)) + timeSeed;
         const size = (OWNER_IDS || []).includes(targetUser.id) ? 12 : Math.floor(getSeededRandom(combinedSeed) * 11) + 1;
         const percentage = Math.round((size / 12) * 100);
+        
+        const progressBar = generateProgressBar(percentage, 10, '💖', '🖤');
+        
+        const embed = new EmbedBuilder()
+            .setColor('#FF69B4')
+            .setAuthor({ name: `${targetUser.username}'s PP Reading`, iconURL: targetUser.displayAvatarURL() })
+            .addFields(
+                { name: 'Size', value: `${size} inches` },
+                { name: 'Meter', value: `**8=${progressBar}D**` }
+            );
 
-        try {
-            const imageUrl = await createAttributeCard("PP Size", `${size} inches`, percentage);
-            if (!imageUrl) throw new Error("API did not return a valid image URL.");
-            const embed = new EmbedBuilder()
-                .setColor('#FFD700')
-                .setAuthor({ name: `${targetUser.username}'s PP Reading`, iconURL: targetUser.displayAvatarURL() })
-                .setImage(imageUrl);
-            await interaction.editReply({ embeds: [embed] });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({ embeds: [createGheeEmbed('Error', 'My image generator is on a smoke break. Try again in a bit.')]});
-        }
+        await interaction.editReply({ embeds: [embed] });
     },
 };
