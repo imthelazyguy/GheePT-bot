@@ -2,7 +2,7 @@
 const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
 const { Rank } = require('canvacord');
 const path = require('path');
-const { getXpForLevel } = require('../../utils/leveling'); // Using our existing leveling utility
+const { getXpForLevel } = require('../../utils/leveling');
 
 module.exports = {
     category: 'utility',
@@ -27,30 +27,32 @@ module.exports = {
             const userRef = db.collection('users').doc(`${guildId}-${userId}`);
             const doc = await userRef.get();
 
-            let level = 1, chatXp = 0, voiceXp = 0, coins = 0;
+            let level = 1, chatXp = 0, voiceXp = 0;
 
             if (doc.exists) {
                 const data = doc.data();
                 level = data.level || 1;
                 chatXp = data.chatXp || 0;
                 voiceXp = data.voiceXp || 0;
-                coins = data.spotCoins || 0;
             }
             
             const totalXP = chatXp + voiceXp;
             const neededXp = getXpForLevel(level);
 
-            // Fetch all users to calculate rank
-            const snapshot = await db.collection('users').where('guildId', '==', guildId).orderBy('xp', 'desc').get();
-            const players = snapshot.docs.map(d => d.id);
-            const rank = players.indexOf(`${guildId}-${userId}`) + 1 || snapshot.size + 1;
+            // --- FIX: This new method for calculating rank does NOT require an index ---
+            const allUsersSnapshot = await db.collection('users').where('guildId', '==', guildId).get();
+            const sortedUsers = allUsersSnapshot.docs
+                .map(d => ({ id: d.id, xp: (d.data().chatXp || 0) + (d.data().voiceXp || 0) }))
+                .sort((a, b) => b.xp - a.xp);
+            
+            const rank = sortedUsers.findIndex(p => p.id === `${guildId}-${userId}`) + 1 || allUsersSnapshot.size;
 
             const member = await interaction.guild.members.fetch(userId);
             const status = member.presence?.status || 'offline';
             
             const backgroundPath = path.join(__dirname, '../../assets/card-bg.png');
 
-            // Build the rank card using canvacord
+            // --- FIX: The '.addXP()' method has been removed as it does not exist ---
             const card = new Rank()
                 .setUsername(user.username)
                 .setDiscriminator(user.discriminator)
@@ -61,14 +63,16 @@ module.exports = {
                 .setRank(rank, "RANK")
                 .setStatus(status, true, 5)
                 .setProgressBar('#2bdac7', 'COLOR')
-                .setBackground('IMAGE', backgroundPath)
-                .addXP('Chat XP', chatXp)
-                .addXP('Voice XP', voiceXp);
+                .setBackground('IMAGE', backgroundPath);
 
             const data = await card.build();
             const attachment = new AttachmentBuilder(data, { name: 'gheept-rank-card.png' });
 
-            await interaction.editReply({ files: [attachment] });
+            // We add the detailed XP breakdown in the message content itself.
+            await interaction.editReply({ 
+                content: `**Chat XP:** ${chatXp.toLocaleString()} | **Voice XP:** ${voiceXp.toLocaleString()}`, 
+                files: [attachment] 
+            });
 
         } catch (error) {
             console.error("Rank card generation failed:", error);
