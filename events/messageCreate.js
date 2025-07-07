@@ -1,47 +1,96 @@
-// commands/admin/level.js
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { createSuccessEmbed, createErrorEmbed } = require('../../utils/embeds');
-const { getXpForLevel } = require('../../utils/leveling');
+// events/messageCreate.js
+const { Events, EmbedBuilder } = require('discord.js');
+const { FieldValue } = require('firebase-admin/firestore');
+const { getXpForLevel } = require('../utils/leveling');
+const config = require('../config');
+
+// This function now generates and sends a simple level up embed.
+async function handleLevelUp(member, newLevel, db) {
+    if (!member) return;
+
+    console.log(`User ${member.user.username} has reached level ${newLevel}.`);
+    
+    const levelUpEmbed = new EmbedBuilder()
+        .setColor('#00FF7F')
+        .setAuthor({ name: "Level Up!", iconURL: member.user.displayAvatarURL() })
+        .setDescription(`🎉 Congratulations, ${member}! You have reached **Level ${newLevel}**!`);
+    
+    // Find a channel to send the announcement
+    const guildConfigDoc = await db.collection('guilds').doc(member.guild.id).get();
+    let announcementChannel = member.guild.systemChannel;
+    
+    if (guildConfigDoc.exists && guildConfigDoc.data().levelUpChannelId) {
+        const configuredChannel = await member.guild.channels.fetch(guildConfigDoc.data().levelUpChannelId).catch(() => null);
+        if (configuredChannel && configuredChannel.isTextBased()) {
+            announcementChannel = configuredChannel;
+        }
+    }
+    
+    if (announcementChannel) {
+        await announcementChannel.send({ embeds: [levelUpEmbed] });
+    }
+
+    // Grant roles
+    const levelRolesRef = db.collection('guilds').doc(member.guild.id).collection('level_roles');
+    const rolesSnapshot = await levelRolesRef.where('level', '<=', newLevel).get();
+    if (!rolesSnapshot.empty) {
+        const rolesToAdd = rolesSnapshot.docs.map(doc => doc.data().roleId);
+        await member.roles.add(rolesToAdd).catch(console.error);
+    }
+}
+
+// The core XP handler logic (atomic transaction)
+async function handleXp(message, db) {
+    const guildId = message.guild.id;
+    const userId = message.author.id;
+    const userRef = db.collection('users').doc(`${guildId}-${userId}`);
+    let levelUpDetails = null;
+
+    try {
+        await db.runTransaction(async (t) => {
+            const doc = await t.get(userRef);
+            const data = doc.exists ? doc.data() : { xp: 0, level: 0, lastXpMessage: 0, chatXp: 0 };
+            
+            const now = Date.now();
+            if (now - (data.lastXpMessage || 0) < (config.XP_COOLDOWN_SECONDS || 60) * 1000) return;
+
+            const xpGained = Math.floor(Math.random() * (config.XP_PER_MESSAGE_MAX - config.XP_PER_MESSAGE_MIN + 1)) + config.XP_PER_MESSAGE_MIN;
+            const newTotalXp = (data.xp || 0) + xpGained;
+            const newChatXp = (data.chatXp || 0) + xpGained;
+            const initialLevel = data.level || 0;
+            let newLevel = initialLevel;
+            
+            let xpForNextLevel = getXpForLevel(newLevel);
+            while (newTotalXp >= xpForNextLevel) {
+                newLevel++;
+                xpForNextLevel = getXpForLevel(newLevel);
+            }
+
+            const updateData = { xp: newTotalXp, chatXp: newChatXp, level: newLevel, lastXpMessage: now, username: message.author.username };
+            t.set(userRef, updateData, { merge: true });
+
+            if (newLevel > initialLevel) {
+                levelUpDetails = { newLevel };
+            }
+        });
+        return levelUpDetails;
+    } catch (error) {
+        console.error("Transaction failure in handleXp:", error);
+        return null;
+    }
+}
+
 
 module.exports = {
-    category: 'admin',
-    data: new SlashCommandBuilder()
-        .setName('level')
-        .setDescription('Manually manage user levels and XP.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addSubcommand(subcommand =>
-            subcommand.setName('setxp')
-                .setDescription("Set a user's total XP.")
-                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
-                .addIntegerOption(option => option.setName('amount').setDescription('The total amount of XP.').setRequired(true).setMinValue(0)))
-        .addSubcommand(subcommand =>
-            subcommand.setName('setlevel')
-                .setDescription("Set a user's level (XP will be set to the minimum for that level).")
-                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
-                .addIntegerOption(option => option.setName('level').setDescription('The target level.').setRequired(true).setMinValue(0))),
+    name: Events.MessageCreate,
+    async execute(message, db) {
+        if (message.author.bot || !message.guild) return;
 
-    async execute(interaction, db) {
-        await interaction.deferReply({ ephemeral: true });
-        const subcommand = interaction.options.getSubcommand();
-        const targetUser = interaction.options.getUser('user');
-        const userRef = db.collection('users').doc(`${interaction.guild.id}-${targetUser.id}`);
-
-        if (targetUser.bot) {
-            return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, "Bots do not participate in the leveling system.")] });
+        const levelUpDetails = await handleXp(message, db);
+        if (levelUpDetails) {
+            await handleLevelUp(message.member, levelUpDetails.newLevel, db);
         }
-
-        if (subcommand === 'setxp') {
-            const amount = interaction.options.getInteger('amount');
-            // When setting XP, we should update both total and chat XP for simplicity
-            await userRef.set({ xp: amount, chatXp: amount }, { merge: true });
-            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username}'s XP has been set to **${amount.toLocaleString()}**.`)] });
-        }
-
-        if (subcommand === 'setlevel') {
-            const level = interaction.options.getInteger('level');
-            const xpForLevel = getXpForLevel(level > 0 ? level - 1 : 0);
-            await userRef.set({ level: level, xp: xpForLevel, chatXp: xpForLevel }, { merge: true });
-            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username} has been set to **Level ${level}**.`)] });
-        }
+        
+        // ... casual response logic ...
     },
 };
