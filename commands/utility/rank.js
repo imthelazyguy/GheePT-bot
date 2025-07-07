@@ -1,8 +1,17 @@
 // commands/utility/rank.js
-const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
-const { Rank } = require('canvacord');
-const path = require('path');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getXpForLevel } = require('../../utils/leveling');
+
+// This function creates a progress bar out of emojis.
+function generateProgressBar(current, required, length = 10) {
+    const percentage = current / required;
+    const progress = Math.round(length * percentage);
+    const empty = length - progress;
+    if (progress + empty !== length) { // Sanity check
+        return '▰'.repeat(length);
+    }
+    return '▰'.repeat(progress) + '▱'.repeat(empty);
+}
 
 module.exports = {
     category: 'utility',
@@ -23,12 +32,11 @@ module.exports = {
         const userId = user.id;
 
         try {
-            // Fetch user data from our existing Firestore structure
+            // Fetch user data
             const userRef = db.collection('users').doc(`${guildId}-${userId}`);
             const doc = await userRef.get();
 
             let level = 1, chatXp = 0, voiceXp = 0;
-
             if (doc.exists) {
                 const data = doc.data();
                 level = data.level || 1;
@@ -39,44 +47,32 @@ module.exports = {
             const totalXP = chatXp + voiceXp;
             const neededXp = getXpForLevel(level);
 
-            // --- FIX: This new method for calculating rank does NOT require an index ---
+            // Calculate Rank
             const allUsersSnapshot = await db.collection('users').where('guildId', '==', guildId).get();
             const sortedUsers = allUsersSnapshot.docs
                 .map(d => ({ id: d.id, xp: (d.data().chatXp || 0) + (d.data().voiceXp || 0) }))
                 .sort((a, b) => b.xp - a.xp);
-            
             const rank = sortedUsers.findIndex(p => p.id === `${guildId}-${userId}`) + 1 || allUsersSnapshot.size;
 
-            const member = await interaction.guild.members.fetch(userId);
-            const status = member.presence?.status || 'offline';
+            const progressBar = generateProgressBar(totalXP, neededXp, 15);
             
-            const backgroundPath = path.join(__dirname, '../../assets/card-bg.png');
+            const rankEmbed = new EmbedBuilder()
+                .setColor('#2bdac7')
+                .setAuthor({ name: `${user.username}'s Server Rank`, iconURL: user.displayAvatarURL() })
+                .setThumbnail(user.displayAvatarURL())
+                .addFields(
+                    { name: 'Rank', value: `\`#${rank}\``, inline: true },
+                    { name: 'Level', value: `\`${level}\``, inline: true },
+                    { name: 'Total XP', value: `\`${totalXP.toLocaleString()}\``, inline: true },
+                    { name: 'XP Breakdown', value: `💬 Chat: \`${chatXp.toLocaleString()}\` | 🎤 Voice: \`${voiceXp.toLocaleString()}\``},
+                    { name: 'Level Progress', value: `\`${totalXP.toLocaleString()} / ${neededXp.toLocaleString()}\`\n${progressBar}` }
+                );
 
-            // --- FIX: The '.addXP()' method has been removed as it does not exist ---
-            const card = new Rank()
-                .setUsername(user.username)
-                .setDiscriminator(user.discriminator)
-                .setAvatar(user.displayAvatarURL({ extension: 'png' }))
-                .setCurrentXP(totalXP)
-                .setRequiredXP(neededXp)
-                .setLevel(level)
-                .setRank(rank, "RANK")
-                .setStatus(status, true, 5)
-                .setProgressBar('#2bdac7', 'COLOR')
-                .setBackground('IMAGE', backgroundPath);
-
-            const data = await card.build();
-            const attachment = new AttachmentBuilder(data, { name: 'gheept-rank-card.png' });
-
-            // We add the detailed XP breakdown in the message content itself.
-            await interaction.editReply({ 
-                content: `**Chat XP:** ${chatXp.toLocaleString()} | **Voice XP:** ${voiceXp.toLocaleString()}`, 
-                files: [attachment] 
-            });
+            await interaction.editReply({ embeds: [rankEmbed] });
 
         } catch (error) {
-            console.error("Rank card generation failed:", error);
-            await interaction.editReply({ content: "My circuits are fried trying to calculate your vibe. Try again later." });
+            console.error("Rank command failed:", error);
+            await interaction.editReply({ content: "My abacus broke trying to calculate the rank. Try again later." });
         }
     },
 };
