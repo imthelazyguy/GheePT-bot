@@ -1,21 +1,17 @@
-# nixpacks.toml - The Definitive Final Version
+# nixpacks.toml - Correct configuration for installing canvas on Railway
 
-# This tells Nixpacks to use the Node.js provider.
-providers = ["node"]
-
-# This phase installs Node.js version 18 itself, PLUS the required system libraries.
-# This is the line that was missing and caused all the failures.
 [phases.setup]
-nixPkgs = ["nodejs-18_x", "pkgs.cairo", "pkgs.pango", "pkgs.libjpeg", "pkgs.giflib", "pkgs.pkg-config"]
+# System packages required by the 'canvas' library, installed via Nix
+nixPkgs = ["pkgs.cairo", "pkgs.pango", "pkgs.libjpeg", "pkgs.giflib", "pkgs.pkg-config"]
 
-# This phase runs after Node.js is installed. It will now find `npm`.
+# This phase installs your Node.js dependencies after the system libraries are in place.
 [phases.install]
 cmds = ["npm install"]
 
-# This phase runs after dependencies are installed.
+# This phase builds your application by deploying commands.
 [phases.build]
 cmds = ["npm run deploy"]
 
-# This is the final command to start your bot.
+# This phase defines the command to start your application.
 [start]
 cmd = "npm start"
