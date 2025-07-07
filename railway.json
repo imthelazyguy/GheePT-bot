@@ -6,22 +6,26 @@
       "providers": ["node"],
       "phases": {
         "setup": {
-          "nixPkgs": ["nodejs-18_x"]
+          "nixPkgs": [
+            "nodejs-18_x",
+            "pkgs.cairo",
+            "pkgs.pango",
+            "pkgs.libjpeg",
+            "pkgs.giflib",
+            "pkgs.pkg-config"
+          ]
         },
         "install": {
           "cmds": ["npm install"]
         },
         "build": {
-          "cmds": ["npm run deploy"]
+          "cmds": ["node deploy-commands.js"]
         }
       }
     }
   },
   "deploy": {
-    "runtime": "V2",
-    "numReplicas": 1,
     "startCommand": "npm start",
-    "sleepApplication": false,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
