@@ -1,14 +1,9 @@
 // utils/leveling.js
 
-/**
- * Calculates the total cumulative XP required to reach the next level.
- * This new cubic formula scales much more aggressively at higher levels.
- * @param {number} level - The current level.
- * @returns {number} The total XP needed for the next level.
- */
+// This formula determines how much XP is needed for any given level.
+// It's a common formula: 5 * (lvl ^ 2) + 50 * lvl + 100
 function getXpForLevel(level) {
-    // New, more aggressive cubic formula
-    return 10 * (level ** 3) + 75 * (level ** 2) + 200 * level;
+    return 5 * (level ** 2) + (50 * level) + 100;
 }
 
 module.exports = { getXpForLevel };
