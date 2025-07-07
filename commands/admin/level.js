@@ -10,18 +10,20 @@ module.exports = {
         .setName('level')
         .setDescription('Manually manage user levels and XP, or test level-up cards.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addSubcommand(subcommand => subcommand
-            .setName('setxp').setDescription("Set a user's total XP.")
-            .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
-            .addIntegerOption(option => option.setName('amount').setDescription('The total amount of XP.').setRequired(true).setMinValue(0)))
-        .addSubcommand(subcommand => subcommand
-            .setName('setlevel').setDescription("Set a user's level (XP will be set to the minimum for that level).")
-            .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
-            .addIntegerOption(option => option.setName('level').setDescription('The target level.').setRequired(true).setMinValue(0)))
-        // --- NEW SUBCOMMAND ---
-        .addSubcommand(subcommand => subcommand
-            .setName('testcard').setDescription("Generate a test level-up card for a user.")
-            .addUserOption(option => option.setName('user').setDescription('The user to generate the card for.').setRequired(true))),
+        .addSubcommand(subcommand =>
+            subcommand.setName('setxp')
+                .setDescription("Set a user's total XP.")
+                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
+                .addIntegerOption(option => option.setName('amount').setDescription('The total amount of XP.').setRequired(true).setMinValue(0)))
+        .addSubcommand(subcommand =>
+            subcommand.setName('setlevel')
+                .setDescription("Set a user's level (XP will be set to the minimum for that level).")
+                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
+                .addIntegerOption(option => option.setName('level').setDescription('The target level.').setRequired(true).setMinValue(0)))
+        .addSubcommand(subcommand =>
+            subcommand.setName('testcard')
+                .setDescription("Generate a test level-up card for a user.")
+                .addUserOption(option => option.setName('user').setDescription('The user to generate the card for.').setRequired(true))),
 
     async execute(interaction, db) {
         await interaction.deferReply({ ephemeral: true });
@@ -36,12 +38,13 @@ module.exports = {
         if (subcommand === 'setxp') {
             const amount = interaction.options.getInteger('amount');
             await userRef.set({ xp: amount }, { merge: true });
-            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username}'s XP has been set to **${amount}**.`)] });
+            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username}'s XP has been set to **${amount.toLocaleString()}**.`)] });
         }
 
         if (subcommand === 'setlevel') {
             const level = interaction.options.getInteger('level');
-            const xpForLevel = getXpForLevel(level - 1); // XP needed to *reach* this level
+            // We calculate the XP needed to have just reached this level
+            const xpForLevel = getXpForLevel(level > 0 ? level - 1 : 0);
             await userRef.set({ level: level, xp: xpForLevel }, { merge: true });
             return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username} has been set to **Level ${level}**.`)] });
         }
@@ -57,16 +60,17 @@ module.exports = {
 
                 // To calculate rank, we check how many users have more XP
                 const rankSnapshot = await db.collection('users')
+                    .where('guildId', '==', interaction.guild.id)
                     .where('xp', '>', currentXp)
                     .count()
                     .get();
                 const rank = rankSnapshot.data().count + 1;
 
-                // Generate the card showing a hypothetical level up from their current level
+                // Generate the card showing a hypothetical level up from their current level to the next
                 const imageUrl = await createLevelUpCard(targetMember, currentLevel, currentLevel + 1, currentXp, rank);
 
                 if (!imageUrl) {
-                    throw new Error("Image generation failed.");
+                    throw new Error("The image generation service returned nothing.");
                 }
 
                 const embed = new EmbedBuilder()
