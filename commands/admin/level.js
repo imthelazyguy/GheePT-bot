@@ -1,7 +1,5 @@
 // commands/admin/level.js
-const { SlashCommandBuilder, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
-const { Rank } = require('canvacord');
-const path = require('path');
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const { createSuccessEmbed, createErrorEmbed } = require('../../utils/embeds');
 const { getXpForLevel } = require('../../utils/leveling');
 
@@ -9,13 +7,18 @@ module.exports = {
     category: 'admin',
     data: new SlashCommandBuilder()
         .setName('level')
-        .setDescription('Manually manage user levels and XP, or test level-up cards.')
+        .setDescription('Manually manage user levels and XP.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        // ... (subcommands remain the same)
         .addSubcommand(subcommand =>
-            subcommand.setName('testcard')
-                .setDescription("Generate a test level-up card for a user.")
-                .addUserOption(option => option.setName('user').setDescription('The user to generate the card for.').setRequired(true))),
+            subcommand.setName('setxp')
+                .setDescription("Set a user's total XP.")
+                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
+                .addIntegerOption(option => option.setName('amount').setDescription('The total amount of XP.').setRequired(true).setMinValue(0)))
+        .addSubcommand(subcommand =>
+            subcommand.setName('setlevel')
+                .setDescription("Set a user's level (XP will be set to the minimum for that level).")
+                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
+                .addIntegerOption(option => option.setName('level').setDescription('The target level.').setRequired(true).setMinValue(0))),
 
     async execute(interaction, db) {
         await interaction.deferReply({ ephemeral: true });
@@ -24,58 +27,21 @@ module.exports = {
         const userRef = db.collection('users').doc(`${interaction.guild.id}-${targetUser.id}`);
 
         if (targetUser.bot) {
-            // ...
+            return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, "Bots do not participate in the leveling system.")] });
         }
 
-        if (subcommand === 'setxp' || subcommand === 'setlevel') {
-            // ... (this logic remains the same)
+        if (subcommand === 'setxp') {
+            const amount = interaction.options.getInteger('amount');
+            // When setting XP, we should update both total and chat XP for simplicity
+            await userRef.set({ xp: amount, chatXp: amount }, { merge: true });
+            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username}'s XP has been set to **${amount.toLocaleString()}**.`)] });
         }
 
-        if (subcommand === 'testcard') {
-            try {
-                const targetMember = await interaction.guild.members.fetch(targetUser.id);
-                const userDoc = await userRef.get();
-                const data = userDoc.data() || { level: 1, chatXp: 0, voiceXp: 0 };
-
-                const currentLevel = data.level || 1;
-                const chatXp = data.chatXp || 0;
-                const voiceXp = data.voiceXp || 0;
-                const totalXP = chatXp + voiceXp;
-                const xpForNextLevel = getXpForLevel(currentLevel);
-
-                // --- FIX: This new method for calculating rank does NOT require an index ---
-                const allUsersSnapshot = await db.collection('users').where('guildId', '==', interaction.guild.id).get();
-                const sortedUsers = allUsersSnapshot.docs
-                    .map(d => ({ id: d.id, xp: (d.data().chatXp || 0) + (d.data().voiceXp || 0) }))
-                    .sort((a, b) => b.xp - a.xp);
-                const rank = sortedUsers.findIndex(p => p.id === `${interaction.guild.id}-${targetUser.id}`) + 1 || allUsersSnapshot.size;
-
-                const backgroundPath = path.join(__dirname, '../../assets/card-bg.png');
-                
-                const card = new Rank()
-                    .setUsername(targetUser.username)
-                    .setDiscriminator(targetUser.discriminator)
-                    .setAvatar(targetUser.displayAvatarURL({ extension: 'png' }))
-                    .setCurrentXP(totalXP)
-                    .setRequiredXP(xpForNextLevel)
-                    .setLevel(currentLevel, "LEVEL") // Show their current level
-                    .setRank(rank, "RANK")
-                    .setStatus(targetMember.presence?.status || 'offline', true, 5)
-                    .setProgressBar('#00FF7F', 'COLOR')
-                    .setBackground('IMAGE', backgroundPath);
-
-                const cardBuffer = await card.build();
-                const attachment = new AttachmentBuilder(cardBuffer, { name: 'levelup-test-card.png' });
-
-                await interaction.editReply({ 
-                    content: `**Chat XP:** ${chatXp.toLocaleString()} | **Voice XP:** ${voiceXp.toLocaleString()}\nHere is a preview of the rank card:`, 
-                    files: [attachment] 
-                });
-
-            } catch (error) {
-                console.error("Failed to generate test level up card:", error);
-                await interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, "Could not generate the test card.")] });
-            }
+        if (subcommand === 'setlevel') {
+            const level = interaction.options.getInteger('level');
+            const xpForLevel = getXpForLevel(level > 0 ? level - 1 : 0);
+            await userRef.set({ level: level, xp: xpForLevel, chatXp: xpForLevel }, { merge: true });
+            return interaction.editReply({ embeds: [await createSuccessEmbed(interaction, db, `${targetUser.username} has been set to **Level ${level}**.`)] });
         }
     },
 };
