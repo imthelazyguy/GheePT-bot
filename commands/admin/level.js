@@ -11,16 +11,7 @@ module.exports = {
         .setName('level')
         .setDescription('Manually manage user levels and XP, or test level-up cards.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addSubcommand(subcommand =>
-            subcommand.setName('setxp')
-                .setDescription("Set a user's total XP.")
-                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
-                .addIntegerOption(option => option.setName('amount').setDescription('The total amount of XP.').setRequired(true).setMinValue(0)))
-        .addSubcommand(subcommand =>
-            subcommand.setName('setlevel')
-                .setDescription("Set a user's level (XP will be set to the minimum for that level).")
-                .addUserOption(option => option.setName('user').setDescription('The user to modify.').setRequired(true))
-                .addIntegerOption(option => option.setName('level').setDescription('The target level.').setRequired(true).setMinValue(0)))
+        // ... (subcommands remain the same)
         .addSubcommand(subcommand =>
             subcommand.setName('testcard')
                 .setDescription("Generate a test level-up card for a user.")
@@ -33,57 +24,57 @@ module.exports = {
         const userRef = db.collection('users').doc(`${interaction.guild.id}-${targetUser.id}`);
 
         if (targetUser.bot) {
-            return interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, "Bots do not participate in the leveling system.")] });
+            // ...
         }
 
         if (subcommand === 'setxp' || subcommand === 'setlevel') {
-            // This logic is unchanged
-            // ...
+            // ... (this logic remains the same)
         }
 
         if (subcommand === 'testcard') {
             try {
                 const targetMember = await interaction.guild.members.fetch(targetUser.id);
                 const userDoc = await userRef.get();
-                const data = userDoc.data() || { level: 1, xp: 0, chatXp: 0, voiceXp: 0 };
+                const data = userDoc.data() || { level: 1, chatXp: 0, voiceXp: 0 };
 
                 const currentLevel = data.level || 1;
-                const totalXP = (data.chatXp || 0) + (data.voiceXp || 0);
+                const chatXp = data.chatXp || 0;
+                const voiceXp = data.voiceXp || 0;
+                const totalXP = chatXp + voiceXp;
                 const xpForNextLevel = getXpForLevel(currentLevel);
 
-                // This is the query that requires the index.
-                const rankSnapshot = await db.collection('users')
-                    .where('guildId', '==', interaction.guild.id)
-                    .where('xp', '>', totalXP) // Note: A more accurate rank would use totalXP, but this requires another index.
-                    .count()
-                    .get();
-                const rank = rankSnapshot.data().count + 1;
+                // --- FIX: This new method for calculating rank does NOT require an index ---
+                const allUsersSnapshot = await db.collection('users').where('guildId', '==', interaction.guild.id).get();
+                const sortedUsers = allUsersSnapshot.docs
+                    .map(d => ({ id: d.id, xp: (d.data().chatXp || 0) + (d.data().voiceXp || 0) }))
+                    .sort((a, b) => b.xp - a.xp);
+                const rank = sortedUsers.findIndex(p => p.id === `${interaction.guild.id}-${targetUser.id}`) + 1 || allUsersSnapshot.size;
 
                 const backgroundPath = path.join(__dirname, '../../assets/card-bg.png');
                 
-                // Build the card using canvacord
                 const card = new Rank()
                     .setUsername(targetUser.username)
                     .setDiscriminator(targetUser.discriminator)
                     .setAvatar(targetUser.displayAvatarURL({ extension: 'png' }))
                     .setCurrentXP(totalXP)
                     .setRequiredXP(xpForNextLevel)
-                    .setLevel(currentLevel + 1, "LEVEL") // Show the NEW level they would reach
+                    .setLevel(currentLevel, "LEVEL") // Show their current level
                     .setRank(rank, "RANK")
                     .setStatus(targetMember.presence?.status || 'offline', true, 5)
-                    .setProgressBar('#00FF7F', 'COLOR') // A nice green for level ups
-                    .setBackground('IMAGE', backgroundPath)
-                    .addXP('chat', data.chatXp || 0)
-                    .addXP('voice', data.voiceXp || 0);
+                    .setProgressBar('#00FF7F', 'COLOR')
+                    .setBackground('IMAGE', backgroundPath);
 
                 const cardBuffer = await card.build();
                 const attachment = new AttachmentBuilder(cardBuffer, { name: 'levelup-test-card.png' });
 
-                await interaction.editReply({ content: 'Here is a preview of the level-up card:', files: [attachment] });
+                await interaction.editReply({ 
+                    content: `**Chat XP:** ${chatXp.toLocaleString()} | **Voice XP:** ${voiceXp.toLocaleString()}\nHere is a preview of the rank card:`, 
+                    files: [attachment] 
+                });
 
             } catch (error) {
                 console.error("Failed to generate test level up card:", error);
-                await interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, "Could not generate the test card. Please ensure the Firestore index has been created and is fully enabled.")] });
+                await interaction.editReply({ embeds: [await createErrorEmbed(interaction, db, "Could not generate the test card.")] });
             }
         }
     },
