@@ -3,44 +3,47 @@ const { EmbedBuilder } = require('discord.js');
 
 const GHEE_GOLD = '#FFD700';
 
-// A simple cache to avoid fetching the config for every embed
+// A simple cache to avoid fetching guild configs repeatedly
 const guildConfigCache = new Map();
 
-async function getGuildConfig(interaction, db) {
-    const guildId = interaction.guild.id;
+async function getGuildConfig(guild, db) {
+    if (!guild) return {}; // Return empty config if no guild is available
+    const guildId = guild.id;
+
     if (guildConfigCache.has(guildId)) {
         return guildConfigCache.get(guildId);
     }
     const configDoc = await db.collection('guilds').doc(guildId).get();
     const config = configDoc.exists ? configDoc.data() : {};
     guildConfigCache.set(guildId, config);
-    // Set a timeout to clear the cache after 5 minutes to get fresh data later
-    setTimeout(() => guildConfigCache.delete(guildId), 5 * 60 * 1000);
+    setTimeout(() => guildConfigCache.delete(guildId), 5 * 60 * 1000); // Cache for 5 mins
     return config;
 }
 
-async function getCustomEmoji(interaction, db, purpose, fallback) {
-    const config = await getGuildConfig(interaction, db);
+async function getCustomEmoji(guild, db, purpose, fallback) {
+    const config = await getGuildConfig(guild, db);
     return config.customEmojis?.[purpose] || fallback;
 }
 
 function createGheeEmbed(title, description, color = GHEE_GOLD) {
     return new EmbedBuilder()
         .setTitle(title)
-        .setDescription(description || '\u200B') // Use a zero-width space if description is empty
+        .setDescription(description || '\u200B')
         .setColor(color)
         .setTimestamp()
         .setFooter({ text: "GheePT | The GheeSpot Bot" });
 }
 
-// SUCCESS and ERROR embeds now need the interaction and db to find custom emojis
-async function createSuccessEmbed(interaction, db, description) {
-    const successEmoji = await getCustomEmoji(interaction, db, 'success', '✅');
+// These functions can now accept a 'guild' object instead of a full 'interaction'
+async function createSuccessEmbed(context, db, description) {
+    const guild = context.guild;
+    const successEmoji = await getCustomEmoji(guild, db, 'success', '✅');
     return createGheeEmbed(`${successEmoji} Success`, description, 'Green');
 }
 
-async function createErrorEmbed(interaction, db, description) {
-    const errorEmoji = await getCustomEmoji(interaction, db, 'error', '❌');
+async function createErrorEmbed(context, db, description) {
+    const guild = context.guild;
+    const errorEmoji = await getCustomEmoji(guild, db, 'error', '❌');
     return createGheeEmbed(`${errorEmoji} Error`, description, 'Red');
 }
 
