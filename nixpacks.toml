@@ -1,0 +1,3 @@
+# nixpacks.toml - The minimal and correct configuration for GheePT
+
+providers = ["node"]
