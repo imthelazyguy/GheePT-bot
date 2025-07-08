@@ -14,7 +14,7 @@ async function createRankCardUrl(user, member, rankData) {
     const percentage = Math.max(0, Math.min(100, (xpInCurrentLevel / requiredForThisLevel) * 100));
 
     // IMPORTANT: You must upload your 'card-bg.png' to a host like Imgur and paste the direct link here.
-    const backgroundImageUrl = 'https://i.imgur.com/your-background-image-id.png'; // <-- PASTE YOUR IMAGE URL HERE
+    const backgroundImageUrl = 'https://imgur.com/a/6OLEewB'; // <-- PASTE YOUR IMAGE URL HERE
 
     const chartConfig = {
         type: 'bar',
