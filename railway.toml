@@ -1,0 +1,21 @@
+# railway.toml - An alternative explicit build plan for GheePT
+
+[build]
+builder = "nixpacks"
+
+[build.nixpacksConfig]
+providers = ["node"]
+
+[build.nixpacksConfig.phases.setup]
+nixPkgs = ["nodejs-18_x"]
+
+[build.nixpacksConfig.phases.install]
+cmds = ["npm install --verbose"]
+
+[build.nixpacksConfig.phases.build]
+cmds = ["node deploy-commands.js"]
+
+[deploy]
+startCommand = "npm start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
